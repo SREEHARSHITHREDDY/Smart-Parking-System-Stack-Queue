@@ -1,5 +1,9 @@
 import json
 import os
+from models.vehicle import Vehicle
+from core.parking_lot import ParkingLot
+from core.billing import Billing
+from core.sensor import Sensor
 
 DATA_FILE = "parking_data.json"
 
