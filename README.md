@@ -88,7 +88,6 @@ Amount    : ₹20
 	•	IoT Sensor Integration
 	•	Real-time Parking Analytics
 
-⸻
 
 # Author
 
