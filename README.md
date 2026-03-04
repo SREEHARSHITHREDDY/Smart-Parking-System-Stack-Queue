@@ -45,22 +45,29 @@ smart-parking-system
 │
 
 ├── core
-│   ├── parking_lot.py
-│   ├── billing.py
-│   ├── sensor.py
-│   └── utils.py
+│   
+    ├── parking_lot.py
+│  
+     ├── billing.py
+│   
+    ├── sensor.py
+│   
+    └── utils.py
 │
 
 ├── models
-│   └── vehicle.py
+│   
+    └── vehicle.py
 │
 
 ├── storage
-│   └── file_handler.py
+│   
+    └── file_handler.py
 │
 ├── data
 
-│   └── parking_data.json
+│   
+    └── parking_data.json
 │
 
 └── main.py
