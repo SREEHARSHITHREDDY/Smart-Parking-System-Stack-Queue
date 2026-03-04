@@ -7,7 +7,6 @@ from storage.file_handler import save_data, load_data
 
 def main():
 
-    # Load saved parking data
     data = load_data()
 
     if data:
@@ -33,7 +32,6 @@ def main():
 
         choice = input("Enter choice: ")
 
-        # -------- PARK VEHICLE --------
         if choice == "1":
 
             number_plate = input(
@@ -50,7 +48,6 @@ def main():
 
             parking_lot.park_vehicle(vehicle)
 
-        # -------- EXIT VEHICLE --------
         elif choice == "2":
 
             identifier = input(
@@ -59,17 +56,14 @@ def main():
 
             parking_lot.remove_vehicle(identifier, billing)
 
-        # -------- SHOW PARKING --------
         elif choice == "3":
 
             parking_lot.display_layout()
 
-        # -------- VIEW REVENUE --------
         elif choice == "4":
 
             print(f"\nTotal Revenue Collected: ₹{parking_lot.revenue}")
 
-        # -------- EXIT SYSTEM --------
         elif choice == "5":
 
             save_data(parking_lot)

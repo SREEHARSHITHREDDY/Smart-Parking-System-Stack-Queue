@@ -12,8 +12,6 @@ class ParkingLot:
 
         self._create_blueprint()
 
-    # ---------------- CREATE BLUEPRINT ----------------
-
     def _create_blueprint(self):
 
         for r in range(self.rows):
@@ -26,8 +24,6 @@ class ParkingLot:
                     "vehicle": None
                 }
 
-    # ---------------- FIND EMPTY SLOT ----------------
-
     def find_empty_slot(self):
 
         for slot, info in self.layout.items():
@@ -36,8 +32,6 @@ class ParkingLot:
                 return slot
 
         return None
-
-    # ---------------- PARK VEHICLE ----------------
 
     def park_vehicle(self, vehicle):
 
@@ -50,7 +44,6 @@ class ParkingLot:
         self.layout[slot]["status"] = "occupied"
         self.layout[slot]["vehicle"] = vehicle
 
-        # Push into stack (DSA concept)
         self.stack.append(vehicle)
 
         print("\n------ ENTRY TICKET ------")
@@ -65,14 +58,11 @@ class ParkingLot:
 
         return True
 
-    # ---------------- REMOVE VEHICLE ----------------
-
     def remove_vehicle(self, identifier, billing):
 
         vehicle = None
         slot = None
 
-        # Find vehicle in layout
         for s, info in self.layout.items():
 
             if info["vehicle"]:
@@ -88,16 +78,12 @@ class ParkingLot:
             print("Vehicle not found.")
             return False
 
-        # Calculate fee
         fee, exit_time = billing.calculate_fee(vehicle)
 
         self.revenue += fee
 
-        # Update blueprint
         self.layout[slot]["status"] = "empty"
         self.layout[slot]["vehicle"] = None
-
-        # -------- STACK REMOVAL (DSA STACK LOGIC) --------
 
         temp_stack = []
 
@@ -113,8 +99,6 @@ class ParkingLot:
         while temp_stack:
             self.stack.append(temp_stack.pop())
 
-        # -------- EXIT RECEIPT --------
-
         print("\n------ EXIT RECEIPT ------")
         print(f"Ticket ID : {vehicle.ticket_id}")
         print(f"Vehicle   : {vehicle.number_plate}")
@@ -124,8 +108,6 @@ class ParkingLot:
         print("--------------------------")
 
         return True
-
-    # ---------------- DISPLAY BLUEPRINT ----------------
 
     def display_layout(self):
 
