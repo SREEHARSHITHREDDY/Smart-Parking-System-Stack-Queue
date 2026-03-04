@@ -7,7 +7,7 @@ from storage.file_handler import save_data, load_data
 
 def main():
 
-    # Load existing parking data
+    # Load saved parking data
     data = load_data()
 
     if data:
@@ -33,7 +33,7 @@ def main():
 
         choice = input("Enter choice: ")
 
-        # ---------------- PARK VEHICLE ----------------
+        # -------- PARK VEHICLE --------
         if choice == "1":
 
             number_plate = input(
@@ -44,10 +44,13 @@ def main():
                 print("Invalid vehicle number format.")
                 continue
 
-            vehicle = Vehicle(number_plate)
+            vehicle_type = input("Enter vehicle type (car/bike/truck): ").strip().lower()
+
+            vehicle = Vehicle(number_plate, vehicle_type)
+
             parking_lot.park_vehicle(vehicle)
 
-        # ---------------- EXIT VEHICLE ----------------
+        # -------- EXIT VEHICLE --------
         elif choice == "2":
 
             identifier = input(
@@ -56,22 +59,24 @@ def main():
 
             parking_lot.remove_vehicle(identifier, billing)
 
-        # ---------------- SHOW PARKING ----------------
+        # -------- SHOW PARKING --------
         elif choice == "3":
 
             parking_lot.display_layout()
 
-        # ---------------- VIEW REVENUE ----------------
+        # -------- VIEW REVENUE --------
         elif choice == "4":
 
             print(f"\nTotal Revenue Collected: ₹{parking_lot.revenue}")
 
-        # ---------------- EXIT SYSTEM ----------------
+        # -------- EXIT SYSTEM --------
         elif choice == "5":
 
             save_data(parking_lot)
-            print("Parking data saved.")
+
+            print("\nParking data saved successfully.")
             print("Exiting Smart Parking System.")
+
             break
 
         else:
