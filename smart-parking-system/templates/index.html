@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Smart Parking System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=JetBrains+Mono:wght@300;400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+
+<!-- ══════════════════════ SETUP MODAL ══════════════════════ -->
+<div id="setupOverlay" class="overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-icon">🅿</div>
+      <h2>CONFIGURE PARKING LOT</h2>
+      <p>Define your layout — each row can have a different number of slots</p>
+    </div>
+    <div class="modal-body">
+      <div class="row-builder" id="rowBuilder"></div>
+      <div class="row-actions">
+        <button class="btn-add-row" onclick="addRow()">+ ADD ROW</button>
+      </div>
+      <div class="layout-preview" id="layoutPreview">
+        <span class="preview-label">LAYOUT PREVIEW</span>
+        <div class="preview-grid" id="previewGrid"></div>
+        <div class="preview-stats" id="previewStats"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="submitSetup()">CREATE PARKING LOT</button>
+    </div>
+    <div class="modal-error" id="setupError"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ CAMERA MODAL ══════════════════════ -->
+<div id="cameraOverlay" class="overlay hidden">
+  <div class="modal camera-modal">
+    <div class="modal-header">
+      <div class="modal-icon">📷</div>
+      <h2>SCAN NUMBER PLATE</h2>
+      <p>Point camera at the vehicle number plate and capture</p>
+    </div>
+    <div class="camera-body">
+
+      <div class="camera-feed-wrap">
+        <video id="cameraFeed" autoplay playsinline></video>
+        <div class="camera-overlay-frame">
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+          <div class="scan-line"></div>
+        </div>
+        <canvas id="cameraCanvas" style="display:none;"></canvas>
+      </div>
+
+      <div class="ocr-result" id="ocrResult">
+        <span class="ocr-label">DETECTED PLATE</span>
+        <div class="ocr-plate" id="ocrPlate">—</div>
+        <div class="ocr-status" id="ocrStatus"></div>
+      </div>
+
+    </div>
+    <div class="camera-actions">
+      <button class="btn-capture" id="captureBtn" onclick="captureFrame()">
+        📸 CAPTURE &amp; SCAN
+      </button>
+      <button class="btn-use-plate hidden" id="usePlateBtn" onclick="useCapturedPlate()">
+        ✅ USE THIS PLATE
+      </button>
+      <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ RECEIPT MODAL ══════════════════════ -->
+<div id="receiptOverlay" class="overlay hidden">
+  <div class="modal receipt-modal">
+    <div class="receipt-header">
+      <div id="receiptIcon">🎫</div>
+      <h3 id="receiptTitle">ENTRY TICKET</h3>
+    </div>
+    <div class="receipt-body" id="receiptBody"></div>
+    <div id="printArea" class="print-area"></div>
+    <div class="receipt-actions">
+      <button class="btn-primary" onclick="printReceipt()">🖨️ PRINT RECEIPT</button>
+      <button class="btn-secondary" onclick="closeReceipt()">CLOSE</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ MAIN APP ══════════════════════ -->
+<div id="app" class="app hidden">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-brand">
+      <span class="brand-icon">🅿</span>
+      <div>
+        <div class="brand-name">SMART PARKING</div>
+        <div class="brand-sub">MANAGEMENT SYSTEM</div>
+      </div>
+    </div>
+    <div class="header-stats">
+      <div class="hstat" id="hstatCapacity">
+        <div class="hstat-val">—</div>
+        <div class="hstat-label">CAPACITY</div>
+      </div>
+      <div class="hstat" id="hstatOccupied">
+        <div class="hstat-val">—</div>
+        <div class="hstat-label">OCCUPIED</div>
+      </div>
+      <div class="hstat" id="hstatEmpty">
+        <div class="hstat-val">—</div>
+        <div class="hstat-label">AVAILABLE</div>
+      </div>
+      <div class="hstat" id="hstatQueue">
+        <div class="hstat-val">—</div>
+        <div class="hstat-label">IN QUEUE</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="live-clock" id="liveClock">00:00:00</div>
+      <div class="live-date" id="liveDate">—</div>
+      <button class="btn-reset" onclick="confirmReset()">⚙ RESET</button>
+    </div>
+  </header>
+
+  <!-- OCCUPANCY BAR -->
+  <div class="occ-bar-wrap">
+    <div class="occ-bar-fill" id="occBarFill" style="width:0%"></div>
+    <div class="occ-bar-label" id="occBarLabel">0% OCCUPIED</div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+
+    <!-- LEFT PANEL -->
+    <aside class="left-panel">
+
+      <!-- PARK VEHICLE -->
+      <div class="panel">
+        <div class="panel-title"><span>🚗</span> PARK VEHICLE</div>
+        <div class="form-group">
+          <label>VEHICLE NUMBER</label>
+          <div class="input-with-cam">
+            <input type="text" id="parkPlate" placeholder="TS09AB1234"
+                   maxlength="10" oninput="this.value=this.value.toUpperCase()" />
+            <button class="btn-cam" onclick="openCamera('park')" title="Scan with camera">📷</button>
+          </div>
+          <span class="hint">Format: AA00AA0000 &nbsp;|&nbsp; or use 📷 to scan</span>
+        </div>
+        <div class="form-group">
+          <label>VEHICLE TYPE</label>
+          <div class="type-selector">
+            <button class="type-btn active" data-type="car" onclick="selectType(this)">
+              🚗 CAR<br><small>₹30/hr</small>
+            </button>
+            <button class="type-btn" data-type="bike" onclick="selectType(this)">
+              🏍 BIKE<br><small>₹15/hr</small>
+            </button>
+            <button class="type-btn" data-type="truck" onclick="selectType(this)">
+              🚛 TRUCK<br><small>₹60/hr</small>
+            </button>
+          </div>
+        </div>
+        <button class="btn-primary full" onclick="parkVehicle()">PARK VEHICLE</button>
+        <div class="form-msg" id="parkMsg"></div>
+      </div>
+
+      <!-- EXIT VEHICLE -->
+      <div class="panel">
+        <div class="panel-title"><span>🚪</span> EXIT VEHICLE</div>
+        <div class="form-group">
+          <label>TICKET ID OR VEHICLE NUMBER</label>
+          <div class="input-with-cam">
+            <input type="text" id="exitIdentifier"
+                   placeholder="e.g. A1B2C3D4 or TS09AB1234"
+                   oninput="this.value=this.value.toUpperCase()" />
+            <button class="btn-cam" onclick="openCamera('exit')" title="Scan with camera">📷</button>
+          </div>
+        </div>
+        <button class="btn-danger full" onclick="exitVehicle()">PROCESS EXIT</button>
+        <div class="form-msg" id="exitMsg"></div>
+      </div>
+
+      <!-- REVENUE -->
+      <div class="panel revenue-panel">
+        <div class="panel-title"><span>💰</span> REVENUE</div>
+        <div class="revenue-display">
+          <div class="revenue-label">TOTAL COLLECTED</div>
+          <div class="revenue-amount" id="revenueAmount">₹0</div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- RIGHT PANEL -->
+    <section class="right-panel">
+
+      <!-- BLUEPRINT -->
+      <div class="panel blueprint-panel">
+        <div class="panel-header-row">
+          <div class="panel-title"><span>🗺</span> PARKING BLUEPRINT</div>
+          <div class="legend">
+            <span class="legend-dot empty"></span>AVAILABLE
+            <span class="legend-dot occupied"></span>OCCUPIED
+          </div>
+        </div>
+        <div class="blueprint-grid" id="blueprintGrid"></div>
+      </div>
+
+      <!-- QUEUE -->
+      <div class="panel queue-panel">
+        <div class="panel-title">
+          <span>⏳</span> WAITING QUEUE
+          <span id="queueCount" class="badge">0</span>
+        </div>
+        <div class="queue-list" id="queueList">
+          <div class="empty-state">No vehicles waiting</div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
