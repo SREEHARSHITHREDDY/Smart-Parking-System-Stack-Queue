@@ -39,45 +39,70 @@
 
 <!-- ══════════════════════ CAMERA MODAL ══════════════════════ -->
 <div id="cameraOverlay" class="overlay hidden">
-  <div class="modal camera-modal">
-    <div class="modal-header">
-      <div class="modal-icon">📷</div>
-      <h2>SCAN NUMBER PLATE</h2>
-      <p>Point camera at the vehicle number plate and capture</p>
-    </div>
-    <div class="camera-body">
-
-      <div class="camera-feed-wrap">
-        <video id="cameraFeed" autoplay playsinline></video>
-        <div class="camera-overlay-frame">
-          <div class="corner tl"></div>
-          <div class="corner tr"></div>
-          <div class="corner bl"></div>
-          <div class="corner br"></div>
-          <div class="scan-line"></div>
+    <div class="modal camera-modal">
+      <div class="modal-header">
+        <div class="modal-icon">📷</div>
+        <h2>SCAN NUMBER PLATE</h2>
+        <p>Use camera scan or type the number manually below</p>
+      </div>
+      <div class="camera-body">
+  
+        <!-- Live camera feed -->
+        <div class="camera-feed-wrap">
+          <video id="cameraFeed" autoplay playsinline></video>
+          <div class="camera-overlay-frame">
+            <div class="corner tl"></div>
+            <div class="corner tr"></div>
+            <div class="corner bl"></div>
+            <div class="corner br"></div>
+            <div class="scan-line"></div>
+          </div>
+          <canvas id="cameraCanvas" style="display:none;"></canvas>
         </div>
-        <canvas id="cameraCanvas" style="display:none;"></canvas>
+  
+        <!-- OCR detected result -->
+        <div class="ocr-result" id="ocrResult">
+          <span class="ocr-label">DETECTED PLATE</span>
+          <div class="ocr-plate" id="ocrPlate">—</div>
+          <div class="ocr-status" id="ocrStatus"></div>
+        </div>
+  
+        <!-- ── Manual Entry (collapsible) ── -->
+        <div class="manual-entry-section">
+          <button class="manual-entry-toggle" id="manualToggle"
+                  onclick="toggleManualEntry()">
+            <span>✏️ &nbsp; ENTER NUMBER PLATE MANUALLY</span>
+            <span class="toggle-arrow">▼</span>
+          </button>
+          <div class="manual-entry-body" id="manualEntryBody">
+            <label>VEHICLE NUMBER</label>
+            <div class="manual-entry-row">
+              <input type="text" id="manualPlateInput"
+                     placeholder="e.g. TS09AB1234" maxlength="10"
+                     oninput="this.value=this.value.toUpperCase()"
+                     onkeydown="if(event.key==='Enter') submitManualPlate()" />
+              <button class="btn-manual-submit" onclick="submitManualPlate()">
+                USE THIS
+              </button>
+            </div>
+            <span class="manual-hint">Format: AA00AA0000 &nbsp;·&nbsp; Press Enter or click USE THIS</span>
+          </div>
+        </div>
+  
       </div>
-
-      <div class="ocr-result" id="ocrResult">
-        <span class="ocr-label">DETECTED PLATE</span>
-        <div class="ocr-plate" id="ocrPlate">—</div>
-        <div class="ocr-status" id="ocrStatus"></div>
+  
+      <!-- Action buttons -->
+      <div class="camera-actions">
+        <button class="btn-capture" id="captureBtn" onclick="captureFrame()">
+          📸 CAPTURE &amp; SCAN
+        </button>
+        <button class="btn-use-plate hidden" id="usePlateBtn" onclick="useCapturedPlate()">
+          ✅ USE THIS PLATE
+        </button>
+        <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
       </div>
-
-    </div>
-    <div class="camera-actions">
-      <button class="btn-capture" id="captureBtn" onclick="captureFrame()">
-        📸 CAPTURE &amp; SCAN
-      </button>
-      <button class="btn-use-plate hidden" id="usePlateBtn" onclick="useCapturedPlate()">
-        ✅ USE THIS PLATE
-      </button>
-      <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
     </div>
   </div>
-</div>
-
 <!-- ══════════════════════ RECEIPT MODAL ══════════════════════ -->
 <div id="receiptOverlay" class="overlay hidden">
   <div class="modal receipt-modal">
