@@ -1,19 +1,24 @@
 /* ═══════════════════════════════════════════════════════════
-   SMART PARKING SYSTEM — app.js  v3
+   SMART PARKING SYSTEM — app.js  v4
    Author: C. Sree Harshith Reddy
-   Includes: auto-assign + manual slot picker
+   Includes: single floor, multi-floor, slot picker
 ═══════════════════════════════════════════════════════════ */
 
 /* ── STATE ───────────────────────────────────────────────── */
-let cameraStream  = null;
-let cameraMode    = null;
-let capturedPlate = null;
-let pollTimer     = null;
-let selectedType  = 'car';
-let assignMode    = 'auto';      // 'auto' | 'manual'
-let chosenSlot    = null;        // slot ID chosen in picker e.g. 'B3'
-let latestLayout  = {};          // last known layout from status poll
-let latestConfig  = [];          // last known row_config from status poll
+let cameraStream    = null;
+let cameraMode      = null;
+let capturedPlate   = null;
+let pollTimer       = null;
+let selectedType    = 'car';
+let assignMode      = 'auto';
+let chosenSlot      = null;
+let latestLayout    = {};
+let latestConfig    = [];
+let latestFloorCfg  = null;
+let isMultiFloor    = false;
+let floorMode       = 'single';        // setup modal state
+let activeFloorTab  = null;            // blueprint tab
+let pickerFloorTab  = null;            // picker floor tab
 
 /* ── INIT ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -36,10 +41,23 @@ function startClock() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   SETUP MODAL — ROW BUILDER
+   FLOOR MODE TOGGLE (setup)
 ══════════════════════════════════════════════════════════ */
-function addRow() {
-  const builder  = document.getElementById('rowBuilder');
+function setFloorMode(mode) {
+  floorMode = mode;
+  document.getElementById('fmodeSingle').classList.toggle('active', mode === 'single');
+  document.getElementById('fmodeMulti').classList.toggle('active',  mode === 'multi');
+  document.getElementById('singleFloorConfig').classList.toggle('hidden', mode === 'multi');
+  document.getElementById('multiFloorConfig').classList.toggle('hidden',  mode === 'single');
+  updatePreview();
+}
+
+/* ══════════════════════════════════════════════════════════
+   SINGLE-FLOOR ROW BUILDER
+══════════════════════════════════════════════════════════ */
+function addRow(builderId, btnLabel) {
+  const bId    = builderId || 'rowBuilder';
+  const builder = document.getElementById(bId);
   const rowCount = builder.children.length;
   if (rowCount >= 26) { showToast('Maximum 26 rows allowed', 'error'); return; }
 
@@ -49,13 +67,13 @@ function addRow() {
   div.dataset.row = rowLetter;
   div.innerHTML = `
     <span class="row-label">ROW ${rowLetter}</span>
-    <label>Slots in this row</label>
+    <label>Slots</label>
     <div class="slot-stepper">
       <button type="button" onclick="stepSlot(this,-1)">−</button>
       <input type="number" min="1" max="20" value="4" oninput="updatePreview()" />
       <button type="button" onclick="stepSlot(this,1)">+</button>
     </div>
-    <button class="btn-remove-row" onclick="removeRow(this)" title="Remove row">✕</button>
+    <button class="btn-remove-row" onclick="removeRow(this,'${bId}')" title="Remove row">✕</button>
   `;
   builder.appendChild(div);
   updatePreview();
@@ -63,64 +81,214 @@ function addRow() {
 
 function stepSlot(btn, delta) {
   const input = btn.closest('.slot-stepper').querySelector('input');
-  const val   = Math.min(20, Math.max(1, (parseInt(input.value) || 1) + delta));
-  input.value = val;
+  input.value = Math.min(20, Math.max(1, (parseInt(input.value) || 1) + delta));
   updatePreview();
 }
 
-function removeRow(btn) {
-  const builder = document.getElementById('rowBuilder');
+function removeRow(btn, builderId) {
+  const bId     = builderId || 'rowBuilder';
+  const builder = document.getElementById(bId);
   if (builder.children.length <= 1) { showToast('At least one row is required', 'error'); return; }
   btn.closest('.row-item').remove();
+  relabelRows(builder);
+  updatePreview();
+}
+
+function relabelRows(builder) {
   Array.from(builder.children).forEach((item, i) => {
     const letter = String.fromCharCode(65 + i);
     item.dataset.row = letter;
-    item.querySelector('.row-label').textContent = `ROW ${letter}`;
+    const lbl = item.querySelector('.row-label');
+    if (lbl) lbl.textContent = `ROW ${letter}`;
   });
-  updatePreview();
 }
 
-function getRowConfig() {
-  return Array.from(document.querySelectorAll('#rowBuilder .row-item input'))
+function getRowConfigFromBuilder(builderId) {
+  const bId = builderId || 'rowBuilder';
+  return Array.from(document.querySelectorAll(`#${bId} .row-item input`))
     .map(inp => Math.max(1, Math.min(20, parseInt(inp.value) || 1)));
 }
 
-function updatePreview() {
-  const config = getRowConfig();
-  const grid   = document.getElementById('previewGrid');
-  const stats  = document.getElementById('previewStats');
-  grid.innerHTML = '';
+/* ══════════════════════════════════════════════════════════
+   MULTI-FLOOR BUILDER
+══════════════════════════════════════════════════════════ */
+let floorCount = 0;
 
-  config.forEach((slots, i) => {
-    const letter = String.fromCharCode(65 + i);
-    const row    = document.createElement('div');
-    row.className = 'preview-row';
-    row.innerHTML = `<span class="preview-row-label">${letter}</span>`;
-    for (let s = 0; s < slots; s++) {
-      const cell = document.createElement('div');
-      cell.className = 'preview-slot';
-      cell.style.animationDelay = `${s * 30}ms`;
-      row.appendChild(cell);
-    }
-    grid.appendChild(row);
-  });
+function addFloor() {
+  const builder = document.getElementById('floorBuilder');
+  if (builder.children.length >= 10) { showToast('Maximum 10 floors allowed', 'error'); return; }
 
-  const total = config.reduce((a, b) => a + b, 0);
-  stats.innerHTML = `<span>${config.length}</span> rows &nbsp;·&nbsp; <span>${total}</span> total slots`;
+  floorCount++;
+  const fid  = `floor_${floorCount}`;
+  const card = document.createElement('div');
+  card.className  = 'floor-card';
+  card.dataset.fid = fid;
+
+  const defaultNames = ['Ground', '1st Floor', '2nd Floor', '3rd Floor', 'Basement',
+                        'Level 1', 'Level 2', 'Level 3', 'Terrace', 'Rooftop'];
+  const defaultName  = defaultNames[builder.children.length] || `Floor ${builder.children.length + 1}`;
+
+  card.innerHTML = `
+    <div class="floor-card-header">
+      <span class="floor-number-badge">FLOOR ${builder.children.length + 1}</span>
+      <input class="floor-name-input" type="text" placeholder="e.g. Ground, 1st Floor, B1"
+             value="${defaultName}" oninput="updatePreview()" />
+      <button class="btn-remove-floor" onclick="removeFloor(this)" title="Remove floor">✕</button>
+    </div>
+    <div class="floor-card-body">
+      <div class="floor-rows-label">ROW CONFIGURATION FOR THIS FLOOR</div>
+      <div class="floor-row-builder" id="rows_${fid}"></div>
+      <button class="btn-add-floor-row" onclick="addFloorRow('${fid}')">+ ADD ROW</button>
+    </div>
+  `;
+  builder.appendChild(card);
+  addFloorRow(fid);   // start with one row
+  renumberFloorCards();
+  updatePreview();
 }
 
+function addFloorRow(fid) {
+  const builderId = `rows_${fid}`;
+  const builder   = document.getElementById(builderId);
+  if (!builder) return;
+  const rowCount  = builder.children.length;
+  if (rowCount >= 26) { showToast('Max 26 rows per floor', 'error'); return; }
+
+  const letter = String.fromCharCode(65 + rowCount);
+  const div    = document.createElement('div');
+  div.className  = 'floor-row-item row-item';
+  div.dataset.row = letter;
+  div.innerHTML = `
+    <span class="row-label">ROW ${letter}</span>
+    <label>Slots</label>
+    <div class="slot-stepper">
+      <button type="button" onclick="stepSlot(this,-1)">−</button>
+      <input type="number" min="1" max="20" value="4" oninput="updatePreview()" />
+      <button type="button" onclick="stepSlot(this,1)">+</button>
+    </div>
+    <button class="btn-remove-row" onclick="removeFloorRow(this,'${builderId}')" title="Remove row">✕</button>
+  `;
+  builder.appendChild(div);
+  updatePreview();
+}
+
+function removeFloorRow(btn, builderId) {
+  const builder = document.getElementById(builderId);
+  if (builder.children.length <= 1) { showToast('At least one row per floor', 'error'); return; }
+  btn.closest('.floor-row-item').remove();
+  relabelRows(builder);
+  updatePreview();
+}
+
+function removeFloor(btn) {
+  const builder = document.getElementById('floorBuilder');
+  if (builder.children.length <= 1) { showToast('At least one floor required', 'error'); return; }
+  btn.closest('.floor-card').remove();
+  renumberFloorCards();
+  updatePreview();
+}
+
+function renumberFloorCards() {
+  Array.from(document.querySelectorAll('.floor-card')).forEach((card, i) => {
+    const badge = card.querySelector('.floor-number-badge');
+    if (badge) badge.textContent = `FLOOR ${i + 1}`;
+  });
+}
+
+function getFloorConfig() {
+  const cards = document.querySelectorAll('.floor-card');
+  const result = [];
+  cards.forEach(card => {
+    const fid   = card.dataset.fid;
+    const name  = card.querySelector('.floor-name-input').value.trim() || `Floor ${result.length + 1}`;
+    const rows  = getRowConfigFromBuilder(`rows_${fid}`);
+    result.push({ name, rows });
+  });
+  return result;
+}
+
+/* ══════════════════════════════════════════════════════════
+   PREVIEW (works for both modes)
+══════════════════════════════════════════════════════════ */
+function updatePreview() {
+  const grid  = document.getElementById('previewGrid');
+  const stats = document.getElementById('previewStats');
+  grid.innerHTML = '';
+
+  if (floorMode === 'single') {
+    const config = getRowConfigFromBuilder('rowBuilder');
+    config.forEach((slots, i) => {
+      const letter = String.fromCharCode(65 + i);
+      const row    = document.createElement('div');
+      row.className = 'preview-row';
+      row.innerHTML = `<span class="preview-row-label">${letter}</span>`;
+      for (let s = 0; s < slots; s++) {
+        const cell = document.createElement('div');
+        cell.className = 'preview-slot';
+        cell.style.animationDelay = `${s * 25}ms`;
+        row.appendChild(cell);
+      }
+      grid.appendChild(row);
+    });
+    const total = config.reduce((a, b) => a + b, 0);
+    stats.innerHTML = `<span>${config.length}</span> rows · <span>${total}</span> total slots`;
+
+  } else {
+    const floors = getFloorConfig();
+    let   total  = 0;
+    floors.forEach(floor => {
+      // Floor label
+      const floorLabel = document.createElement('div');
+      floorLabel.style.cssText = `font-family:var(--font-display);font-size:0.58rem;color:var(--gold);margin:6px 0 4px;letter-spacing:0.08em;`;
+      floorLabel.textContent   = `▸ ${floor.name}`;
+      grid.appendChild(floorLabel);
+
+      floor.rows.forEach((slots, i) => {
+        const letter = String.fromCharCode(65 + i);
+        const row    = document.createElement('div');
+        row.className = 'preview-row';
+        row.innerHTML = `<span class="preview-row-label">${letter}</span>`;
+        for (let s = 0; s < slots; s++) {
+          const cell = document.createElement('div');
+          cell.className = 'preview-slot';
+          cell.style.animationDelay = `${s * 20}ms`;
+          row.appendChild(cell);
+        }
+        grid.appendChild(row);
+        total += slots;
+      });
+    });
+    stats.innerHTML = `<span>${floors.length}</span> floors · <span>${total}</span> total slots`;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   SUBMIT SETUP
+══════════════════════════════════════════════════════════ */
 async function submitSetup() {
-  const config = getRowConfig();
-  const errEl  = document.getElementById('setupError');
+  const errEl = document.getElementById('setupError');
   errEl.textContent = '';
 
-  if (!config.length)              { errEl.textContent = 'Add at least one row.'; return; }
-  if (config.some(n => n < 1 || n > 20)) { errEl.textContent = 'Each row must have 1–20 slots.'; return; }
+  let body = {};
+
+  if (floorMode === 'multi') {
+    const floors = getFloorConfig();
+    if (!floors.length) { errEl.textContent = 'Add at least one floor.'; return; }
+    for (const fl of floors) {
+      if (!fl.name) { errEl.textContent = 'Each floor must have a name.'; return; }
+      if (!fl.rows.length) { errEl.textContent = `Floor "${fl.name}" needs at least one row.`; return; }
+    }
+    body = { multi_floor: true, floor_config: floors };
+  } else {
+    const config = getRowConfigFromBuilder('rowBuilder');
+    if (!config.length) { errEl.textContent = 'Add at least one row.'; return; }
+    body = { multi_floor: false, row_config: config };
+  }
 
   try {
     const res  = await fetch('/api/setup', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ row_config: config })
+      body: JSON.stringify(body)
     });
     const data = await res.json();
 
@@ -167,37 +335,49 @@ async function pollStatus() {
 
 function applyStatus(data) {
   const stats = data.stats;
+  latestLayout   = data.layout;
+  latestConfig   = data.row_config;
+  latestFloorCfg = data.floor_config;
+  isMultiFloor   = data.multi_floor || false;
 
-  // cache for slot picker
-  latestLayout = data.layout;
-  latestConfig = data.row_config;
-
-  // header stats
+  // Header stats
   document.getElementById('hstatCapacity').querySelector('.hstat-val').textContent = stats.capacity;
   document.getElementById('hstatOccupied').querySelector('.hstat-val').textContent = stats.occupied;
   document.getElementById('hstatEmpty').querySelector('.hstat-val').textContent    = stats.empty;
   document.getElementById('hstatQueue').querySelector('.hstat-val').textContent    = stats.queue_length;
 
-  // occupancy bar
+  // Occupancy bar
   const pct  = stats.occupancy_pct;
   const fill = document.getElementById('occBarFill');
   fill.style.width = pct + '%';
   fill.className   = 'occ-bar-fill' + (pct >= 85 ? ' full' : pct >= 60 ? ' warn' : '');
   document.getElementById('occBarLabel').textContent = Math.round(pct) + '% OCCUPIED';
 
-  // revenue
+  // Revenue
   document.getElementById('revenueAmount').textContent = '₹' + data.revenue.toFixed(0);
 
-  // blueprint + queue
-  renderBlueprint(data.row_config, data.layout);
-  renderQueue(data.queue);
-
-  // if slot picker is open, refresh it too
-  if (!document.getElementById('slotPickerOverlay').classList.contains('hidden')) {
-    renderSlotPicker(data.row_config, data.layout);
+  // Multi-floor UI updates
+  if (isMultiFloor && latestFloorCfg) {
+    setupFloorTabs(latestFloorCfg, data.floor_stats);
+    setupFloorPrefSelect(latestFloorCfg);
+    updateFloorSummary(data.floor_stats);
+    document.getElementById('floorPrefGroup').classList.remove('hidden');
+  } else {
+    document.getElementById('floorTabs').classList.add('hidden');
+    document.getElementById('floorSummary').classList.add('hidden');
+    document.getElementById('floorPrefGroup').classList.add('hidden');
   }
 
-  // if chosen slot is now occupied (taken by someone else), clear it
+  // Blueprint
+  renderBlueprint(data.row_config, data.layout, data.floor_config);
+  renderQueue(data.queue);
+
+  // Refresh picker if open
+  if (!document.getElementById('slotPickerOverlay').classList.contains('hidden')) {
+    renderSlotPickerForFloor(pickerFloorTab);
+  }
+
+  // Invalidate chosen slot if taken
   if (chosenSlot && latestLayout[chosenSlot] && latestLayout[chosenSlot].status === 'occupied') {
     clearChosenSlot();
     showToast(`Slot ${chosenSlot} was just taken — please choose again`, 'error');
@@ -205,47 +385,161 @@ function applyStatus(data) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   FLOOR TABS (blueprint)
+══════════════════════════════════════════════════════════ */
+function setupFloorTabs(floorCfg, floorStats) {
+  const tabBar = document.getElementById('floorTabs');
+  tabBar.classList.remove('hidden');
+
+  // Only rebuild if floor count changed
+  const existing = tabBar.querySelectorAll('.floor-tab');
+  if (existing.length === floorCfg.length) {
+    // Just update occupancy text
+    floorCfg.forEach((fl, i) => {
+      const fs = floorStats ? floorStats[i] : null;
+      const occ = existing[i].querySelector('.tab-occ');
+      if (occ && fs) occ.textContent = `${fs.occupied}/${fs.capacity}`;
+    });
+    return;
+  }
+
+  tabBar.innerHTML = '';
+  floorCfg.forEach((fl, i) => {
+    const fs  = floorStats ? floorStats[i] : null;
+    const tab = document.createElement('button');
+    tab.className   = 'floor-tab' + (i === 0 ? ' active' : '');
+    tab.dataset.floor = fl.name;
+    tab.innerHTML   = `${fl.name}<span class="tab-occ">${fs ? `${fs.occupied}/${fs.capacity}` : ''}</span>`;
+    tab.onclick     = () => switchFloorTab(fl.name);
+    tabBar.appendChild(tab);
+  });
+
+  if (!activeFloorTab) activeFloorTab = floorCfg[0].name;
+}
+
+function switchFloorTab(floorName) {
+  activeFloorTab = floorName;
+  document.querySelectorAll('.floor-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.floor === floorName);
+  });
+  renderBlueprint(latestConfig, latestLayout, latestFloorCfg);
+}
+
+/* ══════════════════════════════════════════════════════════
+   FLOOR SUMMARY BAR
+══════════════════════════════════════════════════════════ */
+function updateFloorSummary(floorStats) {
+  if (!floorStats) return;
+  const bar = document.getElementById('floorSummary');
+  bar.classList.remove('hidden');
+  bar.innerHTML = '';
+
+  floorStats.forEach(fs => {
+    const pct  = fs.capacity > 0 ? Math.round((fs.occupied / fs.capacity) * 100) : 0;
+    const card = document.createElement('div');
+    card.className = 'floor-summary-card';
+    card.innerHTML = `
+      <div class="fsc-name">${fs.name}</div>
+      <div class="fsc-bar-wrap">
+        <div class="fsc-bar-fill ${pct >= 85 ? 'full' : pct >= 60 ? 'warn' : ''}"
+             style="width:${pct}%"></div>
+      </div>
+      <div class="fsc-nums"><span>${fs.empty}</span> free · <span>${fs.occupied}</span> used</div>
+    `;
+    bar.appendChild(card);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   FLOOR PREFERENCE SELECT
+══════════════════════════════════════════════════════════ */
+function setupFloorPrefSelect(floorCfg) {
+  const sel = document.getElementById('floorPrefSelect');
+  if (sel.options.length === floorCfg.length + 1) return; // already built
+
+  sel.innerHTML = '<option value="">Any floor (auto-assign)</option>';
+  floorCfg.forEach(fl => {
+    const opt    = document.createElement('option');
+    opt.value    = fl.name;
+    opt.textContent = fl.name;
+    sel.appendChild(opt);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
    BLUEPRINT RENDER
 ══════════════════════════════════════════════════════════ */
-function renderBlueprint(rowConfig, layout) {
+function renderBlueprint(rowConfig, layout, floorCfg) {
   const grid = document.getElementById('blueprintGrid');
   grid.innerHTML = '';
 
-  rowConfig.forEach((slotCount, ri) => {
-    const letter = String.fromCharCode(65 + ri);
-    const row    = document.createElement('div');
-    row.className = 'blueprint-row';
+  if (isMultiFloor && floorCfg) {
+    const targetFloor = activeFloorTab || floorCfg[0].name;
+    const floor       = floorCfg.find(f => f.name === targetFloor);
+    if (!floor) return;
 
-    const tag = document.createElement('span');
-    tag.className   = 'row-tag';
-    tag.textContent = letter;
-    row.appendChild(tag);
+    floor.rows.forEach((slotCount, ri) => {
+      const letter = String.fromCharCode(65 + ri);
+      const row    = document.createElement('div');
+      row.className = 'blueprint-row';
 
-    for (let ci = 0; ci < slotCount; ci++) {
-      const slotId   = `${letter}${ci + 1}`;
-      const slotData = layout[slotId];
-      const occupied = slotData && slotData.status === 'occupied';
+      const tag = document.createElement('span');
+      tag.className   = 'row-tag';
+      tag.textContent = letter;
+      row.appendChild(tag);
 
-      const cell = document.createElement('div');
-      cell.className = 'slot-cell' + (occupied ? ' occupied' : '');
-      cell.title = occupied
-        ? `${slotId} — ${slotData.vehicle.number_plate} (${slotData.vehicle.vehicle_type})`
-        : `${slotId} — Available`;
+      for (let ci = 0; ci < slotCount; ci++) {
+        const slotId   = `${targetFloor}-${letter}${ci + 1}`;
+        const slotData = layout[slotId];
+        const occupied = slotData && slotData.status === 'occupied';
 
-      const idSpan    = document.createElement('span');
-      idSpan.className   = 'slot-id';
-      idSpan.textContent = slotId;
+        const cell = buildSlotCell(slotId, occupied, slotData);
+        row.appendChild(cell);
+      }
+      grid.appendChild(row);
+    });
 
-      const plateSpan    = document.createElement('span');
-      plateSpan.className   = 'slot-plate';
-      plateSpan.textContent = occupied ? slotData.vehicle.number_plate : '';
+  } else {
+    // Single floor
+    rowConfig.forEach((slotCount, ri) => {
+      const letter = String.fromCharCode(65 + ri);
+      const row    = document.createElement('div');
+      row.className = 'blueprint-row';
 
-      cell.appendChild(idSpan);
-      cell.appendChild(plateSpan);
-      row.appendChild(cell);
-    }
-    grid.appendChild(row);
-  });
+      const tag = document.createElement('span');
+      tag.className   = 'row-tag';
+      tag.textContent = letter;
+      row.appendChild(tag);
+
+      for (let ci = 0; ci < slotCount; ci++) {
+        const slotId   = `${letter}${ci + 1}`;
+        const slotData = layout[slotId];
+        const occupied = slotData && slotData.status === 'occupied';
+        row.appendChild(buildSlotCell(slotId, occupied, slotData));
+      }
+      grid.appendChild(row);
+    });
+  }
+}
+
+function buildSlotCell(slotId, occupied, slotData) {
+  const cell = document.createElement('div');
+  cell.className = 'slot-cell' + (occupied ? ' occupied' : '');
+  cell.title     = occupied
+    ? `${slotId} — ${slotData.vehicle.number_plate} (${slotData.vehicle.vehicle_type})`
+    : `${slotId} — Available`;
+
+  const idSpan     = document.createElement('span');
+  idSpan.className    = 'slot-id';
+  idSpan.textContent  = slotId.includes('-') ? slotId.split('-')[1] : slotId; // short ID on cell
+
+  const plateSpan    = document.createElement('span');
+  plateSpan.className   = 'slot-plate';
+  plateSpan.textContent = occupied ? slotData.vehicle.number_plate : '';
+
+  cell.appendChild(idSpan);
+  cell.appendChild(plateSpan);
+  return cell;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -287,15 +581,12 @@ function selectType(btn) {
 ══════════════════════════════════════════════════════════ */
 function setAssignMode(mode) {
   assignMode = mode;
-
   document.getElementById('assignAuto').classList.toggle('active',   mode === 'auto');
   document.getElementById('assignManual').classList.toggle('active', mode === 'manual');
 
   if (mode === 'auto') {
     clearChosenSlot();
-    document.getElementById('chosenSlotDisplay').classList.add('hidden');
   } else {
-    // open picker immediately
     openSlotPicker();
   }
 }
@@ -307,76 +598,109 @@ function openSlotPicker() {
   const plate = document.getElementById('parkPlate').value.trim().toUpperCase() || '—';
   document.getElementById('spiPlate').textContent = plate;
   document.getElementById('spiSlot').textContent  = chosenSlot || 'NONE';
+  document.getElementById('confirmSlotBtn').disabled = !chosenSlot;
 
-  const confirmBtn = document.getElementById('confirmSlotBtn');
-  confirmBtn.disabled = !chosenSlot;
+  // Setup picker floor tabs if multi-floor
+  const tabsEl = document.getElementById('pickerFloorTabs');
+  if (isMultiFloor && latestFloorCfg) {
+    tabsEl.classList.remove('hidden');
+    tabsEl.innerHTML = '';
+    latestFloorCfg.forEach((fl, i) => {
+      const tab = document.createElement('button');
+      tab.className    = 'picker-floor-tab' + (i === 0 ? ' active' : '');
+      tab.dataset.floor = fl.name;
+      tab.textContent  = fl.name;
+      tab.onclick      = () => switchPickerFloor(fl.name);
+      tabsEl.appendChild(tab);
+    });
+    pickerFloorTab = latestFloorCfg[0].name;
+  } else {
+    tabsEl.classList.add('hidden');
+    pickerFloorTab = null;
+  }
 
-  renderSlotPicker(latestConfig, latestLayout);
+  renderSlotPickerForFloor(pickerFloorTab);
   document.getElementById('slotPickerOverlay').classList.remove('hidden');
 }
 
-function closeSlotPicker() {
-  document.getElementById('slotPickerOverlay').classList.add('hidden');
-  // if user closed without choosing, revert to auto
-  if (!chosenSlot) {
-    assignMode = 'auto';
-    document.getElementById('assignAuto').classList.add('active');
-    document.getElementById('assignManual').classList.remove('active');
-  }
+function switchPickerFloor(floorName) {
+  pickerFloorTab = floorName;
+  document.querySelectorAll('.picker-floor-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.floor === floorName);
+  });
+  renderSlotPickerForFloor(floorName);
 }
 
-function renderSlotPicker(rowConfig, layout) {
+function renderSlotPickerForFloor(floorName) {
   const grid = document.getElementById('slotPickerGrid');
   grid.innerHTML = '';
 
-  rowConfig.forEach((slotCount, ri) => {
-    const letter = String.fromCharCode(65 + ri);
-    const row    = document.createElement('div');
-    row.className = 'sp-row';
-
-    const tag = document.createElement('span');
-    tag.className   = 'sp-row-label';
-    tag.textContent = letter;
-    row.appendChild(tag);
-
-    for (let ci = 0; ci < slotCount; ci++) {
-      const slotId   = `${letter}${ci + 1}`;
-      const slotData = layout[slotId];
-      const occupied = slotData && slotData.status === 'occupied';
-      const isChosen = slotId === chosenSlot;
-
-      const cell = document.createElement('div');
-      if (occupied)      cell.className = 'sp-cell taken';
-      else if (isChosen) cell.className = 'sp-cell selected';
-      else               cell.className = 'sp-cell available';
-
-      const idSpan    = document.createElement('span');
-      idSpan.className   = 'sp-id';
-      idSpan.textContent = slotId;
-
-      const plateSpan    = document.createElement('span');
-      plateSpan.className   = 'sp-plate';
-      plateSpan.textContent = occupied ? slotData.vehicle.number_plate : 'FREE';
-
-      cell.appendChild(idSpan);
-      cell.appendChild(plateSpan);
-
-      if (!occupied) {
-        cell.onclick = () => selectPickerSlot(slotId);
+  if (isMultiFloor && latestFloorCfg && floorName) {
+    const floor = latestFloorCfg.find(f => f.name === floorName);
+    if (!floor) return;
+    floor.rows.forEach((slotCount, ri) => {
+      const letter = String.fromCharCode(65 + ri);
+      const row    = document.createElement('div');
+      row.className = 'sp-row';
+      const tag = document.createElement('span');
+      tag.className   = 'sp-row-label';
+      tag.textContent = letter;
+      row.appendChild(tag);
+      for (let ci = 0; ci < slotCount; ci++) {
+        const slotId = `${floorName}-${letter}${ci + 1}`;
+        row.appendChild(buildPickerCell(slotId));
       }
+      grid.appendChild(row);
+    });
+  } else {
+    // Single floor
+    latestConfig.forEach((slotCount, ri) => {
+      const letter = String.fromCharCode(65 + ri);
+      const row    = document.createElement('div');
+      row.className = 'sp-row';
+      const tag = document.createElement('span');
+      tag.className   = 'sp-row-label';
+      tag.textContent = letter;
+      row.appendChild(tag);
+      for (let ci = 0; ci < slotCount; ci++) {
+        const slotId = `${letter}${ci + 1}`;
+        row.appendChild(buildPickerCell(slotId));
+      }
+      grid.appendChild(row);
+    });
+  }
+}
 
-      row.appendChild(cell);
-    }
-    grid.appendChild(row);
-  });
+function buildPickerCell(slotId) {
+  const slotData = latestLayout[slotId];
+  const occupied = slotData && slotData.status === 'occupied';
+  const isChosen = slotId === chosenSlot;
+
+  const cell = document.createElement('div');
+  cell.className = occupied ? 'sp-cell taken' : isChosen ? 'sp-cell selected' : 'sp-cell available';
+
+  // Show short ID (strip floor prefix for display)
+  const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+
+  const idEl    = document.createElement('span');
+  idEl.className   = 'sp-id';
+  idEl.textContent = displayId;
+
+  const plateEl    = document.createElement('span');
+  plateEl.className   = 'sp-plate';
+  plateEl.textContent = occupied ? slotData.vehicle.number_plate : 'FREE';
+
+  cell.appendChild(idEl);
+  cell.appendChild(plateEl);
+  if (!occupied) cell.onclick = () => selectPickerSlot(slotId);
+  return cell;
 }
 
 function selectPickerSlot(slotId) {
   chosenSlot = slotId;
   document.getElementById('spiSlot').textContent = slotId;
   document.getElementById('confirmSlotBtn').disabled = false;
-  // re-render to show selection highlight
-  renderSlotPicker(latestConfig, latestLayout);
+  renderSlotPickerForFloor(pickerFloorTab);
 }
 
 function confirmSlotChoice() {
@@ -387,10 +711,20 @@ function confirmSlotChoice() {
   showToast(`Slot ${chosenSlot} selected`, 'info');
 }
 
+function closeSlotPicker() {
+  document.getElementById('slotPickerOverlay').classList.add('hidden');
+  if (!chosenSlot) {
+    assignMode = 'auto';
+    document.getElementById('assignAuto').classList.add('active');
+    document.getElementById('assignManual').classList.remove('active');
+  }
+}
+
 function clearChosenSlot() {
   chosenSlot = null;
   document.getElementById('chosenSlotDisplay').classList.add('hidden');
-  document.getElementById('chosenSlotValue').textContent = '—';
+  const valEl = document.getElementById('chosenSlotValue');
+  if (valEl) valEl.textContent = '—';
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -410,16 +744,18 @@ async function parkVehicle() {
     return;
   }
 
-  // manual mode but no slot chosen yet
   if (assignMode === 'manual' && !chosenSlot) {
     setMsg(msgEl, 'Please choose a slot from the picker first.', 'error');
-    openSlotPicker();
-    return;
+    openSlotPicker(); return;
   }
 
   const body = { number_plate: plate, vehicle_type: selectedType };
+
   if (assignMode === 'manual' && chosenSlot) {
     body.preferred_slot = chosenSlot;
+  } else if (isMultiFloor) {
+    const selFloor = document.getElementById('floorPrefSelect').value;
+    if (selFloor) body.preferred_floor = selFloor;
   }
 
   try {
@@ -431,24 +767,30 @@ async function parkVehicle() {
 
     if (!data.success) { setMsg(msgEl, data.message, 'error'); return; }
 
-    // reset form
     document.getElementById('parkPlate').value = '';
     clearChosenSlot();
-    setAssignMode('auto');
+    setAssignModeQuiet('auto');
 
     if (data.queued) {
       setMsg(msgEl, data.message, 'info');
       showToast('Added to waiting queue', 'info');
       showEntryReceipt(data, true);
     } else {
-      const label = data.manual_slot ? `Parked at your chosen slot ${data.slot}` : `Auto-assigned to slot ${data.slot}`;
+      const label = data.manual_slot
+        ? `Parked at your chosen slot ${data.slot}`
+        : `Auto-assigned to slot ${data.slot}`;
       setMsg(msgEl, label, 'success');
       if (data.nearly_full) showToast('⚠ Parking lot is nearly full!', 'info');
       showEntryReceipt(data, false);
     }
-
     pollStatus();
   } catch (e) { setMsg(msgEl, 'Server error. Try again.', 'error'); }
+}
+
+function setAssignModeQuiet(mode) {
+  assignMode = mode;
+  document.getElementById('assignAuto').classList.toggle('active',   mode === 'auto');
+  document.getElementById('assignManual').classList.toggle('active', mode === 'manual');
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -477,7 +819,7 @@ async function exitVehicle() {
 
     if (data.queued_vehicle_parked) {
       showToast(
-        `Queue: ${data.queued_vehicle_parked.number_plate} auto-parked at ${data.queued_vehicle_parked.slot}`,
+        `Queue: ${data.queued_vehicle_parked.number_plate} parked at ${data.queued_vehicle_parked.slot}`,
         'info'
       );
     }
@@ -491,7 +833,6 @@ async function exitVehicle() {
 function showEntryReceipt(data, queued) {
   document.getElementById('receiptIcon').textContent  = '🎫';
   document.getElementById('receiptTitle').textContent = queued ? 'QUEUE TICKET' : 'ENTRY TICKET';
-
   document.getElementById('receiptBody').innerHTML = `
     <div class="receipt-row">
       <span class="r-label">Vehicle Number</span>
@@ -515,7 +856,6 @@ function showEntryReceipt(data, queued) {
       <span class="r-value">${data.entry_time}</span>
     </div>`}
   `;
-
   document.getElementById('receiptOverlay').classList.remove('hidden');
 }
 
@@ -559,7 +899,6 @@ function showExitReceipt(data) {
       <span class="r-value">₹${data.fee}</span>
     </div>
   `;
-
   document.getElementById('receiptOverlay').classList.remove('hidden');
 }
 
@@ -583,7 +922,7 @@ function openCamera(mode) {
   document.getElementById('cameraOverlay').classList.remove('hidden');
 
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    video: { facingMode: {ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
   })
   .then(stream => {
     cameraStream = stream;
@@ -616,7 +955,6 @@ async function captureFrame() {
   canvas.width  = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
-
   document.getElementById('ocrStatus').textContent = 'Scanning…';
   document.getElementById('ocrPlate').textContent  = '—';
 
@@ -624,11 +962,11 @@ async function captureFrame() {
     const result = await Tesseract.recognize(canvas, 'eng', {
       logger: m => {
         if (m.status === 'recognizing text') {
-          document.getElementById('ocrStatus').textContent = `Scanning… ${Math.round(m.progress * 100)}%`;
+          document.getElementById('ocrStatus').textContent =
+            `Scanning… ${Math.round(m.progress * 100)}%`;
         }
       }
     });
-
     const raw     = result.data.text.replace(/\s+/g, '').toUpperCase();
     const matches = raw.match(/[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/);
     const conf    = Math.round(result.data.confidence);
@@ -641,7 +979,8 @@ async function captureFrame() {
       document.getElementById('captureBtn').classList.add('hidden');
     } else {
       document.getElementById('ocrPlate').textContent  = raw.slice(0, 12) || '—';
-      document.getElementById('ocrStatus').textContent = `No valid plate found (conf ${conf}%). Try again or enter manually.`;
+      document.getElementById('ocrStatus').textContent =
+        `No valid plate found (conf ${conf}%). Try again or enter manually.`;
       document.getElementById('manualEntryBody').classList.add('open');
       document.getElementById('manualToggle').classList.add('open');
     }
@@ -692,10 +1031,17 @@ async function confirmReset() {
       document.getElementById('app').classList.add('hidden');
       document.getElementById('setupOverlay').classList.remove('hidden');
       document.getElementById('rowBuilder').innerHTML = '';
+      document.getElementById('floorBuilder').innerHTML = '';
+      floorCount   = 0;
+      floorMode    = 'single';
+      activeFloorTab  = null;
+      pickerFloorTab  = null;
+      isMultiFloor    = false;
+      latestLayout    = {};
+      latestConfig    = [];
+      latestFloorCfg  = null;
       clearChosenSlot();
-      assignMode   = 'auto';
-      latestLayout = {};
-      latestConfig = [];
+      setFloorMode('single');
       addRow();
       showToast('System reset', 'info');
     }
