@@ -22,7 +22,7 @@
     <div class="modal-body">
       <div class="row-builder" id="rowBuilder"></div>
       <div class="row-actions">
-        <button class="btn-add-row" onclick="addRow()">+ ADD ROW</button>
+        <button class="btn-add-row" onclick="addRow()">ADD ROW</button>
       </div>
       <div class="layout-preview" id="layoutPreview">
         <span class="preview-label">LAYOUT PREVIEW</span>
@@ -37,72 +37,88 @@
   </div>
 </div>
 
-<!-- ══════════════════════ CAMERA MODAL ══════════════════════ -->
-<div id="cameraOverlay" class="overlay hidden">
-    <div class="modal camera-modal">
-      <div class="modal-header">
-        <div class="modal-icon">📷</div>
-        <h2>SCAN NUMBER PLATE</h2>
-        <p>Use camera scan or type the number manually below</p>
+<!-- ══════════════════════ SLOT PICKER MODAL ══════════════════════ -->
+<div id="slotPickerOverlay" class="overlay hidden">
+  <div class="modal slot-picker-modal">
+    <div class="modal-header">
+      <div class="modal-icon">🗺</div>
+      <h2>CHOOSE YOUR SLOT</h2>
+      <p>Select any available slot from the blueprint below</p>
+    </div>
+    <div class="modal-body">
+      <div class="slot-picker-info" id="slotPickerInfo">
+        <span class="spi-label">VEHICLE</span>
+        <span class="spi-plate" id="spiPlate">—</span>
+        <span class="spi-sep">·</span>
+        <span class="spi-label">SELECTED SLOT</span>
+        <span class="spi-slot" id="spiSlot">NONE</span>
       </div>
-      <div class="camera-body">
-  
-        <!-- Live camera feed -->
-        <div class="camera-feed-wrap">
-          <video id="cameraFeed" autoplay playsinline></video>
-          <div class="camera-overlay-frame">
-            <div class="corner tl"></div>
-            <div class="corner tr"></div>
-            <div class="corner bl"></div>
-            <div class="corner br"></div>
-            <div class="scan-line"></div>
-          </div>
-          <canvas id="cameraCanvas" style="display:none;"></canvas>
-        </div>
-  
-        <!-- OCR detected result -->
-        <div class="ocr-result" id="ocrResult">
-          <span class="ocr-label">DETECTED PLATE</span>
-          <div class="ocr-plate" id="ocrPlate">—</div>
-          <div class="ocr-status" id="ocrStatus"></div>
-        </div>
-  
-        <!-- ── Manual Entry (collapsible) ── -->
-        <div class="manual-entry-section">
-          <button class="manual-entry-toggle" id="manualToggle"
-                  onclick="toggleManualEntry()">
-            <span>✏️ &nbsp; ENTER NUMBER PLATE MANUALLY</span>
-            <span class="toggle-arrow">▼</span>
-          </button>
-          <div class="manual-entry-body" id="manualEntryBody">
-            <label>VEHICLE NUMBER</label>
-            <div class="manual-entry-row">
-              <input type="text" id="manualPlateInput"
-                     placeholder="e.g. TS09AB1234" maxlength="10"
-                     oninput="this.value=this.value.toUpperCase()"
-                     onkeydown="if(event.key==='Enter') submitManualPlate()" />
-              <button class="btn-manual-submit" onclick="submitManualPlate()">
-                USE THIS
-              </button>
-            </div>
-            <span class="manual-hint">Format: AA00AA0000 &nbsp;·&nbsp; Press Enter or click USE THIS</span>
-          </div>
-        </div>
-  
-      </div>
-  
-      <!-- Action buttons -->
-      <div class="camera-actions">
-        <button class="btn-capture" id="captureBtn" onclick="captureFrame()">
-          📸 CAPTURE &amp; SCAN
-        </button>
-        <button class="btn-use-plate hidden" id="usePlateBtn" onclick="useCapturedPlate()">
-          ✅ USE THIS PLATE
-        </button>
-        <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
+      <div class="slot-picker-grid" id="slotPickerGrid"></div>
+      <div class="slot-picker-legend">
+        <span><span class="sp-dot available"></span> AVAILABLE — click to select</span>
+        <span><span class="sp-dot selected"></span> YOUR CHOICE</span>
+        <span><span class="sp-dot taken"></span> OCCUPIED</span>
       </div>
     </div>
+    <div class="modal-footer" style="display:flex;gap:10px;">
+      <button class="btn-secondary" style="flex:1" onclick="closeSlotPicker()">CANCEL</button>
+      <button class="btn-primary"   style="flex:2" id="confirmSlotBtn"
+              onclick="confirmSlotChoice()" disabled>SELECT THIS SLOT</button>
+    </div>
   </div>
+</div>
+
+<!-- ══════════════════════ CAMERA MODAL ══════════════════════ -->
+<div id="cameraOverlay" class="overlay hidden">
+  <div class="modal camera-modal">
+    <div class="modal-header">
+      <div class="modal-icon">📷</div>
+      <h2>SCAN NUMBER PLATE</h2>
+      <p>Use camera scan or type the number manually below</p>
+    </div>
+    <div class="camera-body">
+      <div class="camera-feed-wrap">
+        <video id="cameraFeed" autoplay playsinline></video>
+        <div class="camera-overlay-frame">
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+          <div class="scan-line"></div>
+        </div>
+        <canvas id="cameraCanvas" style="display:none;"></canvas>
+      </div>
+      <div class="ocr-result" id="ocrResult">
+        <span class="ocr-label">DETECTED PLATE</span>
+        <div class="ocr-plate" id="ocrPlate">—</div>
+        <div class="ocr-status" id="ocrStatus"></div>
+      </div>
+      <div class="manual-entry-section">
+        <button class="manual-entry-toggle" id="manualToggle" onclick="toggleManualEntry()">
+          <span>✏️ &nbsp; ENTER NUMBER PLATE MANUALLY</span>
+          <span class="toggle-arrow">▼</span>
+        </button>
+        <div class="manual-entry-body" id="manualEntryBody">
+          <label>VEHICLE NUMBER</label>
+          <div class="manual-entry-row">
+            <input type="text" id="manualPlateInput"
+                   placeholder="e.g. TS09AB1234" maxlength="10"
+                   oninput="this.value=this.value.toUpperCase()"
+                   onkeydown="if(event.key==='Enter') submitManualPlate()" />
+            <button class="btn-manual-submit" onclick="submitManualPlate()">USE THIS</button>
+          </div>
+          <span class="manual-hint">Format: AA00AA0000 · Press Enter or click USE THIS</span>
+        </div>
+      </div>
+    </div>
+    <div class="camera-actions">
+      <button class="btn-capture"   id="captureBtn"  onclick="captureFrame()">📸 CAPTURE &amp; SCAN</button>
+      <button class="btn-use-plate hidden" id="usePlateBtn" onclick="useCapturedPlate()">✅ USE THIS PLATE</button>
+      <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════════ RECEIPT MODAL ══════════════════════ -->
 <div id="receiptOverlay" class="overlay hidden">
   <div class="modal receipt-modal">
@@ -113,7 +129,7 @@
     <div class="receipt-body" id="receiptBody"></div>
     <div id="printArea" class="print-area"></div>
     <div class="receipt-actions">
-      <button class="btn-primary" onclick="printReceipt()">🖨️ PRINT RECEIPT</button>
+      <button class="btn-primary"   onclick="printReceipt()">🖨️ PRINT RECEIPT</button>
       <button class="btn-secondary" onclick="closeReceipt()">CLOSE</button>
     </div>
   </div>
@@ -150,8 +166,10 @@
       </div>
     </div>
     <div class="header-right">
-      <div class="live-clock" id="liveClock">00:00:00</div>
-      <div class="live-date" id="liveDate">—</div>
+      <div class="clock-block">
+        <div class="live-clock" id="liveClock">00:00:00</div>
+        <div class="live-date"  id="liveDate">—</div>
+      </div>
       <button class="btn-reset" onclick="confirmReset()">⚙ RESET</button>
     </div>
   </header>
@@ -171,6 +189,7 @@
       <!-- PARK VEHICLE -->
       <div class="panel">
         <div class="panel-title"><span>🚗</span> PARK VEHICLE</div>
+
         <div class="form-group">
           <label>VEHICLE NUMBER</label>
           <div class="input-with-cam">
@@ -178,22 +197,42 @@
                    maxlength="10" oninput="this.value=this.value.toUpperCase()" />
             <button class="btn-cam" onclick="openCamera('park')" title="Scan with camera">📷</button>
           </div>
-          <span class="hint">Format: AA00AA0000 &nbsp;|&nbsp; or use 📷 to scan</span>
+          <span class="hint">Format: AA00AA0000 · or use 📷 to scan</span>
         </div>
+
         <div class="form-group">
           <label>VEHICLE TYPE</label>
           <div class="type-selector">
-            <button class="type-btn active" data-type="car" onclick="selectType(this)">
-              🚗 CAR<br><small>₹30/hr</small>
+            <button class="type-btn active" data-type="car"   onclick="selectType(this)">🚗 CAR<br><small>₹30/hr</small></button>
+            <button class="type-btn"        data-type="bike"  onclick="selectType(this)">🏍 BIKE<br><small>₹15/hr</small></button>
+            <button class="type-btn"        data-type="truck" onclick="selectType(this)">🚛 TRUCK<br><small>₹60/hr</small></button>
+          </div>
+        </div>
+
+        <!-- SLOT ASSIGNMENT MODE TOGGLE -->
+        <div class="form-group">
+          <label>SLOT ASSIGNMENT</label>
+          <div class="assign-toggle">
+            <button class="assign-btn active" id="assignAuto" onclick="setAssignMode('auto')">
+              <span class="assign-icon">⚡</span>
+              <span class="assign-label">AUTO-ASSIGN</span>
+              <span class="assign-sub">System picks best slot</span>
             </button>
-            <button class="type-btn" data-type="bike" onclick="selectType(this)">
-              🏍 BIKE<br><small>₹15/hr</small>
-            </button>
-            <button class="type-btn" data-type="truck" onclick="selectType(this)">
-              🚛 TRUCK<br><small>₹60/hr</small>
+            <button class="assign-btn" id="assignManual" onclick="setAssignMode('manual')">
+              <span class="assign-icon">🎯</span>
+              <span class="assign-label">PICK A SLOT</span>
+              <span class="assign-sub">Choose from blueprint</span>
             </button>
           </div>
         </div>
+
+        <!-- CHOSEN SLOT DISPLAY (shown when manual mode + slot selected) -->
+        <div class="chosen-slot-display hidden" id="chosenSlotDisplay">
+          <span class="cs-label">CHOSEN SLOT</span>
+          <span class="cs-value" id="chosenSlotValue">—</span>
+          <button class="cs-change" onclick="openSlotPicker()">CHANGE</button>
+        </div>
+
         <button class="btn-primary full" onclick="parkVehicle()">PARK VEHICLE</button>
         <div class="form-msg" id="parkMsg"></div>
       </div>
@@ -233,8 +272,8 @@
         <div class="panel-header-row">
           <div class="panel-title"><span>🗺</span> PARKING BLUEPRINT</div>
           <div class="legend">
-            <span class="legend-dot empty"></span>AVAILABLE
-            <span class="legend-dot occupied"></span>OCCUPIED
+            <span><span class="legend-dot empty"></span>AVAILABLE</span>
+            <span><span class="legend-dot occupied"></span>OCCUPIED</span>
           </div>
         </div>
         <div class="blueprint-grid" id="blueprintGrid"></div>
