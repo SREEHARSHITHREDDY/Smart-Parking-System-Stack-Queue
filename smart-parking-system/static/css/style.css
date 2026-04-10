@@ -685,3 +685,248 @@
     .modal-footer { padding:0 20px 24px; }
     .camera-actions { flex-direction:column; }
   }
+  /* ═══════════════════════════════════════════
+   ADDITIONS v4 — Floor Mode
+   ═══════════════════════════════════════════ */
+
+/* ── FLOOR MODE TOGGLE (setup modal) ──────── */
+.floor-mode-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  
+  .fmode-btn {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 14px 10px;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--r-md); cursor: pointer; transition: var(--t); gap: 4px;
+  }
+  .fmode-btn:hover { border-color: var(--border-lit); }
+  .fmode-btn.active {
+    border-color: var(--cyan);
+    background: var(--cyan-soft);
+    box-shadow: 0 0 16px var(--cyan-glow);
+  }
+  .fmode-btn.active[id="fmodeMulti"] {
+    border-color: var(--gold);
+    background: var(--gold-soft);
+    box-shadow: 0 0 16px var(--gold-glow);
+  }
+  
+  .fmode-icon  { font-size: 1.4rem; }
+  .fmode-label {
+    font-family: var(--font-display); font-size: 0.62rem;
+    font-weight: 700; letter-spacing: 0.08em; color: var(--text-mid);
+    transition: var(--t);
+  }
+  .fmode-btn.active            .fmode-label { color: var(--cyan); }
+  .fmode-btn.active[id="fmodeMulti"] .fmode-label { color: var(--gold); }
+  .fmode-sub {
+    font-family: var(--font-data); font-size: 0.58rem;
+    color: var(--text-lo); text-align: center;
+  }
+  
+  /* ── SECTION LABEL ────────────────────────── */
+  .section-label {
+    font-family: var(--font-display); font-size: 0.58rem;
+    letter-spacing: 0.12em; color: var(--text-lo);
+    margin-bottom: 10px; margin-top: 4px;
+  }
+  
+  /* ── FLOOR BUILDER (multi-floor setup) ──────── */
+  .floor-builder {
+    display: flex; flex-direction: column;
+    gap: 14px; margin-bottom: 14px;
+  }
+  
+  .floor-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden; transition: var(--t);
+  }
+  .floor-card:hover { border-color: var(--border-lit); }
+  
+  .floor-card-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    background: var(--bg-input);
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .floor-number-badge {
+    font-family: var(--font-display); font-size: 0.6rem;
+    font-weight: 700; color: var(--gold);
+    background: var(--gold-soft); border: 1px solid var(--gold-dim);
+    padding: 4px 10px; border-radius: var(--r-sm);
+    white-space: nowrap;
+  }
+  
+  .floor-name-input {
+    flex: 1; padding: 7px 10px;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--r-sm); color: var(--text-hi);
+    font-family: var(--font-data); font-size: 0.85rem;
+    outline: none; transition: var(--t);
+  }
+  .floor-name-input:focus { border-color: var(--gold); }
+  .floor-name-input::placeholder { color: var(--text-lo); }
+  
+  .btn-remove-floor {
+    width: 28px; height: 28px;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: var(--r-sm); color: var(--text-lo);
+    cursor: pointer; font-size: 0.8rem; transition: var(--t);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .btn-remove-floor:hover { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+  
+  .floor-card-body  { padding: 12px 14px; }
+  
+  .floor-rows-label {
+    font-family: var(--font-display); font-size: 0.56rem;
+    letter-spacing: 0.1em; color: var(--text-lo); margin-bottom: 8px;
+  }
+  
+  .floor-row-builder { display: flex; flex-direction: column; gap: 7px; margin-bottom: 8px; }
+  
+  .floor-row-item {
+    display: grid;
+    grid-template-columns: 46px 1fr auto auto;
+    align-items: center; gap: 10px;
+    padding: 8px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm); transition: var(--t);
+  }
+  .floor-row-item:hover { border-color: var(--border-lit); }
+  
+  .btn-add-floor-row {
+    width: 100%; padding: 8px;
+    background: transparent; border: 1px dashed var(--border);
+    border-radius: var(--r-sm); color: var(--text-lo);
+    font-family: var(--font-data); font-size: 0.68rem;
+    cursor: pointer; transition: var(--t);
+  }
+  .btn-add-floor-row:hover { border-color: var(--cyan); color: var(--cyan); }
+  
+  /* ── ADD FLOOR BUTTON ─────────────────────── */
+  .btn-add-floor {
+    width: 100%; padding: 12px;
+    background: transparent;
+    border: 1px dashed var(--gold-dim);
+    border-radius: var(--r-md); color: var(--text-mid);
+    font-family: var(--font-display); font-size: 0.65rem;
+    letter-spacing: 0.1em; cursor: pointer; transition: var(--t);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-add-floor:hover {
+    border-color: var(--gold); color: var(--gold);
+    background: var(--gold-soft); box-shadow: 0 0 14px var(--gold-glow);
+  }
+  
+  /* ── FLOOR PREFERENCE SELECT ──────────────── */
+  .optional-tag {
+    font-family: var(--font-data); font-size: 0.58rem;
+    color: var(--cyan); background: var(--cyan-soft);
+    border: 1px solid var(--cyan-dim);
+    padding: 1px 6px; border-radius: 3px; margin-left: 6px;
+  }
+  
+  .floor-select {
+    width: 100%; padding: 11px 13px;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--r-sm); color: var(--text-hi);
+    font-family: var(--font-data); font-size: 0.88rem;
+    outline: none; cursor: pointer; transition: var(--t);
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237aa0be'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+  .floor-select:focus { border-color: var(--cyan); box-shadow: 0 0 12px var(--cyan-glow); }
+  .floor-select option { background: var(--bg-card); }
+  
+  /* ── FLOOR TABS (blueprint) ───────────────── */
+  .floor-tabs {
+    display: flex; gap: 4px; flex-wrap: wrap;
+    margin-bottom: 14px; padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .floor-tab {
+    padding: 7px 16px;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--r-sm); color: var(--text-mid);
+    font-family: var(--font-display); font-size: 0.6rem;
+    font-weight: 700; letter-spacing: 0.08em;
+    cursor: pointer; transition: var(--t);
+    display: flex; align-items: center; gap: 7px;
+  }
+  .floor-tab:hover { border-color: var(--border-lit); color: var(--text-hi); }
+  .floor-tab.active {
+    border-color: var(--cyan); color: var(--cyan);
+    background: var(--cyan-soft); box-shadow: 0 0 10px var(--cyan-glow);
+  }
+  .floor-tab .tab-occ {
+    font-family: var(--font-data); font-size: 0.55rem;
+    color: var(--text-lo); font-weight: 400;
+  }
+  .floor-tab.active .tab-occ { color: var(--cyan-dim); }
+  
+  /* ── FLOOR SUMMARY BAR ────────────────────── */
+  .floor-summary {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-top: 14px; padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  
+  .floor-summary-card {
+    flex: 1; min-width: 100px;
+    padding: 10px 12px;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+  }
+  .fsc-name {
+    font-family: var(--font-display); font-size: 0.6rem;
+    color: var(--gold); font-weight: 700;
+    margin-bottom: 6px; letter-spacing: 0.06em;
+  }
+  .fsc-bar-wrap {
+    height: 4px; background: var(--bg-input);
+    border-radius: 2px; margin-bottom: 5px; overflow: hidden;
+  }
+  .fsc-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green-dim), var(--green));
+    border-radius: 2px; transition: width 0.6s ease;
+  }
+  .fsc-bar-fill.warn { background: linear-gradient(90deg, #e07b30, #f4a261); }
+  .fsc-bar-fill.full { background: linear-gradient(90deg, var(--red-dim), var(--red)); }
+  .fsc-nums {
+    font-family: var(--font-data); font-size: 0.62rem; color: var(--text-lo);
+  }
+  .fsc-nums span { color: var(--text-mid); font-weight: 600; }
+  
+  /* ── PICKER FLOOR TABS ────────────────────── */
+  .picker-floor-tabs {
+    display: flex; gap: 4px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .picker-floor-tab {
+    padding: 6px 14px;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--r-sm); color: var(--text-mid);
+    font-family: var(--font-display); font-size: 0.58rem;
+    font-weight: 700; cursor: pointer; transition: var(--t);
+  }
+  .picker-floor-tab:hover { border-color: var(--border-lit); }
+  .picker-floor-tab.active {
+    border-color: var(--purple); color: var(--purple);
+    background: var(--purple-soft);
+  }
+  
+  /* ── SETUP MODAL WIDER ────────────────────── */
+  .setup-modal { max-width: 720px; }
