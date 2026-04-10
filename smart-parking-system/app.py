@@ -22,7 +22,6 @@ def index():
 
 # ─────────────────────────────────────────────
 # API: STATUS
-# Returns full parking state to frontend
 # ─────────────────────────────────────────────
 
 @app.route('/api/status')
@@ -33,17 +32,15 @@ def status():
     layout_data = {}
     for slot, info in parking_lot.layout.items():
         layout_data[slot] = {
-            "status": info["status"],
+            "status":  info["status"],
             "vehicle": info["vehicle"].to_dict() if info["vehicle"] else None
         }
-
-    queue_data = [v.to_dict() for v in parking_lot.queue]
 
     return jsonify({
         "setup":      True,
         "row_config": parking_lot.row_config,
         "layout":     layout_data,
-        "queue":      queue_data,
+        "queue":      [v.to_dict() for v in parking_lot.queue],
         "revenue":    parking_lot.revenue,
         "stats":      parking_lot.get_stats(),
         "rates":      billing.get_rate_info()
@@ -52,14 +49,13 @@ def status():
 
 # ─────────────────────────────────────────────
 # API: SETUP
-# Admin configures the parking layout
 # ─────────────────────────────────────────────
 
 @app.route('/api/setup', methods=['POST'])
 def setup():
     global parking_lot
 
-    data = request.json
+    data       = request.json
     row_config = data.get('row_config', [])
 
     if not row_config:
@@ -74,16 +70,15 @@ def setup():
     parking_lot = ParkingLot(row_config)
     save_data(parking_lot)
 
-    total = parking_lot.capacity
     return jsonify({
         "success": True,
-        "message": f"Parking lot created! {len(row_config)} rows, {total} total slots."
+        "message": f"Parking lot created! {len(row_config)} rows, {parking_lot.capacity} total slots."
     })
 
 
 # ─────────────────────────────────────────────
 # API: PARK VEHICLE
-# Parks a vehicle or adds to waiting queue
+# Supports optional preferred_slot parameter
 # ─────────────────────────────────────────────
 
 @app.route('/api/park', methods=['POST'])
@@ -93,11 +88,12 @@ def park():
     if not parking_lot:
         return jsonify({"success": False, "message": "Parking lot not configured yet"})
 
-    data = request.json
-    number_plate = data.get('number_plate', '').strip().upper()
-    vehicle_type = data.get('vehicle_type', 'car').strip().lower()
+    data           = request.json
+    number_plate   = data.get('number_plate', '').strip().upper()
+    vehicle_type   = data.get('vehicle_type', 'car').strip().lower()
+    preferred_slot = data.get('preferred_slot', '').strip().upper()
 
-    # Validate format
+    # Validate plate format
     if not validate_vehicle_number(number_plate):
         return jsonify({
             "success": False,
@@ -115,20 +111,55 @@ def park():
             return jsonify({"success": False, "message": "Vehicle is already in the waiting queue"})
 
     vehicle = Vehicle(number_plate, vehicle_type)
+
+    # ── PREFERRED SLOT LOGIC ──────────────────────────────
+    if preferred_slot:
+        # Check slot exists
+        if preferred_slot not in parking_lot.layout:
+            return jsonify({"success": False, "message": f"Slot {preferred_slot} does not exist"})
+
+        slot_info = parking_lot.layout[preferred_slot]
+
+        # Check slot is still available
+        if slot_info["status"] == "occupied":
+            return jsonify({
+                "success": False,
+                "message": f"Slot {preferred_slot} was just taken. Please choose another or use auto-assign."
+            })
+
+        # Assign directly to preferred slot
+        parking_lot.layout[preferred_slot]["status"]  = "occupied"
+        parking_lot.layout[preferred_slot]["vehicle"] = vehicle
+        parking_lot.stack.append(vehicle)
+        nearly_full = len(parking_lot.stack) >= 0.8 * parking_lot.capacity
+        save_data(parking_lot)
+
+        return jsonify({
+            "success":      True,
+            "queued":       False,
+            "message":      f"Vehicle parked at chosen slot {preferred_slot}",
+            "ticket_id":    vehicle.ticket_id,
+            "slot":         preferred_slot,
+            "number_plate": vehicle.number_plate,
+            "entry_time":   vehicle.entry_time.strftime('%H:%M:%S'),
+            "nearly_full":  nearly_full,
+            "manual_slot":  True
+        })
+
+    # ── AUTO-ASSIGN LOGIC ─────────────────────────────────
     result = parking_lot.park_vehicle(vehicle)
     save_data(parking_lot)
 
-    # Vehicle went to queue
     if result["queued"]:
         return jsonify({
-            "success":      True,
-            "queued":       True,
-            "message":      f"Parking full! Added to queue at position #{result['queue_position']}",
-            "ticket_id":    vehicle.ticket_id,
-            "number_plate": vehicle.number_plate
+            "success":         True,
+            "queued":          True,
+            "message":         f"Parking full! Added to queue at position #{result['queue_position']}",
+            "ticket_id":       vehicle.ticket_id,
+            "number_plate":    vehicle.number_plate,
+            "queue_position":  result["queue_position"]
         })
 
-    # Vehicle parked successfully
     return jsonify({
         "success":      True,
         "queued":       False,
@@ -137,14 +168,13 @@ def park():
         "slot":         result["slot"],
         "number_plate": vehicle.number_plate,
         "entry_time":   vehicle.entry_time.strftime('%H:%M:%S'),
-        "nearly_full":  result.get("nearly_full", False)
+        "nearly_full":  result.get("nearly_full", False),
+        "manual_slot":  False
     })
 
 
 # ─────────────────────────────────────────────
 # API: EXIT VEHICLE
-# Removes vehicle, calculates fee, auto-parks
-# first vehicle from queue if any
 # ─────────────────────────────────────────────
 
 @app.route('/api/exit', methods=['POST'])
@@ -154,14 +184,13 @@ def exit_vehicle():
     if not parking_lot:
         return jsonify({"success": False, "message": "Parking lot not configured yet"})
 
-    data = request.json
+    data       = request.json
     identifier = data.get('identifier', '').strip().upper()
 
     if not identifier:
         return jsonify({"success": False, "message": "Please enter Ticket ID or Vehicle Number"})
 
     result = parking_lot.remove_vehicle(identifier, billing)
-
     if result["success"]:
         save_data(parking_lot)
 
@@ -170,7 +199,6 @@ def exit_vehicle():
 
 # ─────────────────────────────────────────────
 # API: RESET
-# Wipes all data and resets the system
 # ─────────────────────────────────────────────
 
 @app.route('/api/reset', methods=['POST'])
@@ -187,7 +215,6 @@ def reset():
 
 # ─────────────────────────────────────────────
 # BOOTSTRAP
-# Loads previous parking data on startup
 # ─────────────────────────────────────────────
 
 def bootstrap():
@@ -198,18 +225,16 @@ def bootstrap():
         return
 
     try:
-        parking_lot = ParkingLot(data["row_config"])
-        parking_lot.revenue = data.get("revenue", 0)
+        parking_lot          = ParkingLot(data["row_config"])
+        parking_lot.revenue  = data.get("revenue", 0)
 
-        # Restore parked vehicles
         for slot, sdata in data.get("layout", {}).items():
             if slot in parking_lot.layout and sdata.get("vehicle"):
                 v = Vehicle.from_dict(sdata["vehicle"])
-                parking_lot.layout[slot]["status"] = "occupied"
+                parking_lot.layout[slot]["status"]  = "occupied"
                 parking_lot.layout[slot]["vehicle"] = v
                 parking_lot.stack.append(v)
 
-        # Restore waiting queue
         for vdata in data.get("queue", []):
             v = Vehicle.from_dict(vdata)
             parking_lot.queue.append(v)
