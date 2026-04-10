@@ -10,15 +10,18 @@ def save_data(parking_lot):
     layout_data = {}
     for slot, info in parking_lot.layout.items():
         layout_data[slot] = {
-            "status": info["status"],
-            "vehicle": info["vehicle"].to_dict() if info["vehicle"] else None
+            "status":  info["status"],
+            "vehicle": info["vehicle"].to_dict() if info["vehicle"] else None,
+            "floor":   info.get("floor")
         }
 
     data = {
-        "row_config": parking_lot.row_config,
-        "revenue":    parking_lot.revenue,
-        "layout":     layout_data,
-        "queue":      [v.to_dict() for v in parking_lot.queue]
+        "row_config":   parking_lot.row_config,
+        "floor_config": parking_lot.floor_config,
+        "multi_floor":  parking_lot.multi_floor,
+        "revenue":      parking_lot.revenue,
+        "layout":       layout_data,
+        "queue":        [v.to_dict() for v in parking_lot.queue]
     }
 
     with open(DATA_FILE, "w") as f:
