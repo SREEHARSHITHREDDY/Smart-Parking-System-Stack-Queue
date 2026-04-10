@@ -1,21 +1,25 @@
 /* ═══════════════════════════════════════════════════════════
-   SMART PARKING SYSTEM — app.js
+   SMART PARKING SYSTEM — app.js  v3
    Author: C. Sree Harshith Reddy
-   Phase 1 — Full frontend logic, API calls, blueprint render
+   Includes: auto-assign + manual slot picker
 ═══════════════════════════════════════════════════════════ */
 
 /* ── STATE ───────────────────────────────────────────────── */
-let cameraStream   = null;
-let cameraMode     = null;   // 'park' | 'exit'
-let capturedPlate  = null;
-let pollTimer      = null;
-let selectedType   = 'car';
+let cameraStream  = null;
+let cameraMode    = null;
+let capturedPlate = null;
+let pollTimer     = null;
+let selectedType  = 'car';
+let assignMode    = 'auto';      // 'auto' | 'manual'
+let chosenSlot    = null;        // slot ID chosen in picker e.g. 'B3'
+let latestLayout  = {};          // last known layout from status poll
+let latestConfig  = [];          // last known row_config from status poll
 
 /* ── INIT ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
   startClock();
   checkStatus();
-  addRow();          // start setup modal with one row
+  addRow();
 });
 
 /* ══════════════════════════════════════════════════════════
@@ -24,10 +28,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function startClock() {
   function tick() {
     const now = new Date();
-    document.getElementById('liveClock').textContent =
-      now.toTimeString().slice(0, 8);
-    document.getElementById('liveDate').textContent =
-      now.toDateString();
+    document.getElementById('liveClock').textContent = now.toTimeString().slice(0, 8);
+    document.getElementById('liveDate').textContent  = now.toDateString();
   }
   tick();
   setInterval(tick, 1000);
@@ -37,33 +39,39 @@ function startClock() {
    SETUP MODAL — ROW BUILDER
 ══════════════════════════════════════════════════════════ */
 function addRow() {
-  const builder = document.getElementById('rowBuilder');
+  const builder  = document.getElementById('rowBuilder');
   const rowCount = builder.children.length;
   if (rowCount >= 26) { showToast('Maximum 26 rows allowed', 'error'); return; }
 
   const rowLetter = String.fromCharCode(65 + rowCount);
   const div = document.createElement('div');
-  div.className = 'row-item';
+  div.className  = 'row-item';
   div.dataset.row = rowLetter;
   div.innerHTML = `
     <span class="row-label">ROW ${rowLetter}</span>
-    <label>Number of slots</label>
-    <input type="number" min="1" max="20" value="4"
-           oninput="updatePreview()" />
-    <button class="btn-remove-row" onclick="removeRow(this)">✕</button>
+    <label>Slots in this row</label>
+    <div class="slot-stepper">
+      <button type="button" onclick="stepSlot(this,-1)">−</button>
+      <input type="number" min="1" max="20" value="4" oninput="updatePreview()" />
+      <button type="button" onclick="stepSlot(this,1)">+</button>
+    </div>
+    <button class="btn-remove-row" onclick="removeRow(this)" title="Remove row">✕</button>
   `;
   builder.appendChild(div);
   updatePreview();
 }
 
+function stepSlot(btn, delta) {
+  const input = btn.closest('.slot-stepper').querySelector('input');
+  const val   = Math.min(20, Math.max(1, (parseInt(input.value) || 1) + delta));
+  input.value = val;
+  updatePreview();
+}
+
 function removeRow(btn) {
   const builder = document.getElementById('rowBuilder');
-  if (builder.children.length <= 1) {
-    showToast('At least one row is required', 'error');
-    return;
-  }
+  if (builder.children.length <= 1) { showToast('At least one row is required', 'error'); return; }
   btn.closest('.row-item').remove();
-  // re-label rows
   Array.from(builder.children).forEach((item, i) => {
     const letter = String.fromCharCode(65 + i);
     item.dataset.row = letter;
@@ -73,8 +81,8 @@ function removeRow(btn) {
 }
 
 function getRowConfig() {
-  const items = document.querySelectorAll('#rowBuilder .row-item input');
-  return Array.from(items).map(inp => Math.max(1, Math.min(20, parseInt(inp.value) || 1)));
+  return Array.from(document.querySelectorAll('#rowBuilder .row-item input'))
+    .map(inp => Math.max(1, Math.min(20, parseInt(inp.value) || 1)));
 }
 
 function updatePreview() {
@@ -85,19 +93,20 @@ function updatePreview() {
 
   config.forEach((slots, i) => {
     const letter = String.fromCharCode(65 + i);
-    const row = document.createElement('div');
+    const row    = document.createElement('div');
     row.className = 'preview-row';
     row.innerHTML = `<span class="preview-row-label">${letter}</span>`;
     for (let s = 0; s < slots; s++) {
       const cell = document.createElement('div');
       cell.className = 'preview-slot';
+      cell.style.animationDelay = `${s * 30}ms`;
       row.appendChild(cell);
     }
     grid.appendChild(row);
   });
 
   const total = config.reduce((a, b) => a + b, 0);
-  stats.textContent = `${config.length} rows · ${total} total slots`;
+  stats.innerHTML = `<span>${config.length}</span> rows &nbsp;·&nbsp; <span>${total}</span> total slots`;
 }
 
 async function submitSetup() {
@@ -105,14 +114,13 @@ async function submitSetup() {
   const errEl  = document.getElementById('setupError');
   errEl.textContent = '';
 
-  if (config.length === 0) { errEl.textContent = 'Add at least one row.'; return; }
+  if (!config.length)              { errEl.textContent = 'Add at least one row.'; return; }
   if (config.some(n => n < 1 || n > 20)) { errEl.textContent = 'Each row must have 1–20 slots.'; return; }
 
   try {
     const res  = await fetch('/api/setup', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ row_config: config })
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ row_config: config })
     });
     const data = await res.json();
 
@@ -124,9 +132,7 @@ async function submitSetup() {
     } else {
       errEl.textContent = data.message;
     }
-  } catch (e) {
-    errEl.textContent = 'Could not connect to server.';
-  }
+  } catch (e) { errEl.textContent = 'Could not connect to server.'; }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -142,14 +148,13 @@ async function checkStatus() {
   try {
     const res  = await fetch('/api/status');
     const data = await res.json();
-
     if (data.setup) {
       document.getElementById('setupOverlay').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       applyStatus(data);
       startPolling();
     }
-  } catch (e) { /* server not ready yet */ }
+  } catch (e) {}
 }
 
 async function pollStatus() {
@@ -157,32 +162,46 @@ async function pollStatus() {
     const res  = await fetch('/api/status');
     const data = await res.json();
     if (data.setup) applyStatus(data);
-  } catch (e) { /* silent fail on poll */ }
+  } catch (e) {}
 }
 
 function applyStatus(data) {
   const stats = data.stats;
 
-  // Header stats
+  // cache for slot picker
+  latestLayout = data.layout;
+  latestConfig = data.row_config;
+
+  // header stats
   document.getElementById('hstatCapacity').querySelector('.hstat-val').textContent = stats.capacity;
   document.getElementById('hstatOccupied').querySelector('.hstat-val').textContent = stats.occupied;
   document.getElementById('hstatEmpty').querySelector('.hstat-val').textContent    = stats.empty;
   document.getElementById('hstatQueue').querySelector('.hstat-val').textContent    = stats.queue_length;
 
-  // Occupancy bar
-  const pct   = stats.occupancy_pct;
-  const fill  = document.getElementById('occBarFill');
-  const label = document.getElementById('occBarLabel');
+  // occupancy bar
+  const pct  = stats.occupancy_pct;
+  const fill = document.getElementById('occBarFill');
   fill.style.width = pct + '%';
   fill.className   = 'occ-bar-fill' + (pct >= 85 ? ' full' : pct >= 60 ? ' warn' : '');
-  label.textContent = Math.round(pct) + '% OCCUPIED';
+  document.getElementById('occBarLabel').textContent = Math.round(pct) + '% OCCUPIED';
 
-  // Revenue
+  // revenue
   document.getElementById('revenueAmount').textContent = '₹' + data.revenue.toFixed(0);
 
-  // Blueprint + queue
+  // blueprint + queue
   renderBlueprint(data.row_config, data.layout);
   renderQueue(data.queue);
+
+  // if slot picker is open, refresh it too
+  if (!document.getElementById('slotPickerOverlay').classList.contains('hidden')) {
+    renderSlotPicker(data.row_config, data.layout);
+  }
+
+  // if chosen slot is now occupied (taken by someone else), clear it
+  if (chosenSlot && latestLayout[chosenSlot] && latestLayout[chosenSlot].status === 'occupied') {
+    clearChosenSlot();
+    showToast(`Slot ${chosenSlot} was just taken — please choose again`, 'error');
+  }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -209,7 +228,7 @@ function renderBlueprint(rowConfig, layout) {
 
       const cell = document.createElement('div');
       cell.className = 'slot-cell' + (occupied ? ' occupied' : '');
-      cell.title     = occupied
+      cell.title = occupied
         ? `${slotId} — ${slotData.vehicle.number_plate} (${slotData.vehicle.vehicle_type})`
         : `${slotId} — Available`;
 
@@ -237,11 +256,10 @@ function renderQueue(queue) {
   const badge = document.getElementById('queueCount');
   badge.textContent = queue.length;
 
-  if (queue.length === 0) {
+  if (!queue.length) {
     list.innerHTML = '<div class="empty-state">No vehicles waiting</div>';
     return;
   }
-
   list.innerHTML = '';
   queue.forEach((v, i) => {
     const item = document.createElement('div');
@@ -256,12 +274,123 @@ function renderQueue(queue) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   VEHICLE TYPE SELECTION
+   VEHICLE TYPE
 ══════════════════════════════════════════════════════════ */
 function selectType(btn) {
   document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   selectedType = btn.dataset.type;
+}
+
+/* ══════════════════════════════════════════════════════════
+   ASSIGN MODE
+══════════════════════════════════════════════════════════ */
+function setAssignMode(mode) {
+  assignMode = mode;
+
+  document.getElementById('assignAuto').classList.toggle('active',   mode === 'auto');
+  document.getElementById('assignManual').classList.toggle('active', mode === 'manual');
+
+  if (mode === 'auto') {
+    clearChosenSlot();
+    document.getElementById('chosenSlotDisplay').classList.add('hidden');
+  } else {
+    // open picker immediately
+    openSlotPicker();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   SLOT PICKER
+══════════════════════════════════════════════════════════ */
+function openSlotPicker() {
+  const plate = document.getElementById('parkPlate').value.trim().toUpperCase() || '—';
+  document.getElementById('spiPlate').textContent = plate;
+  document.getElementById('spiSlot').textContent  = chosenSlot || 'NONE';
+
+  const confirmBtn = document.getElementById('confirmSlotBtn');
+  confirmBtn.disabled = !chosenSlot;
+
+  renderSlotPicker(latestConfig, latestLayout);
+  document.getElementById('slotPickerOverlay').classList.remove('hidden');
+}
+
+function closeSlotPicker() {
+  document.getElementById('slotPickerOverlay').classList.add('hidden');
+  // if user closed without choosing, revert to auto
+  if (!chosenSlot) {
+    assignMode = 'auto';
+    document.getElementById('assignAuto').classList.add('active');
+    document.getElementById('assignManual').classList.remove('active');
+  }
+}
+
+function renderSlotPicker(rowConfig, layout) {
+  const grid = document.getElementById('slotPickerGrid');
+  grid.innerHTML = '';
+
+  rowConfig.forEach((slotCount, ri) => {
+    const letter = String.fromCharCode(65 + ri);
+    const row    = document.createElement('div');
+    row.className = 'sp-row';
+
+    const tag = document.createElement('span');
+    tag.className   = 'sp-row-label';
+    tag.textContent = letter;
+    row.appendChild(tag);
+
+    for (let ci = 0; ci < slotCount; ci++) {
+      const slotId   = `${letter}${ci + 1}`;
+      const slotData = layout[slotId];
+      const occupied = slotData && slotData.status === 'occupied';
+      const isChosen = slotId === chosenSlot;
+
+      const cell = document.createElement('div');
+      if (occupied)      cell.className = 'sp-cell taken';
+      else if (isChosen) cell.className = 'sp-cell selected';
+      else               cell.className = 'sp-cell available';
+
+      const idSpan    = document.createElement('span');
+      idSpan.className   = 'sp-id';
+      idSpan.textContent = slotId;
+
+      const plateSpan    = document.createElement('span');
+      plateSpan.className   = 'sp-plate';
+      plateSpan.textContent = occupied ? slotData.vehicle.number_plate : 'FREE';
+
+      cell.appendChild(idSpan);
+      cell.appendChild(plateSpan);
+
+      if (!occupied) {
+        cell.onclick = () => selectPickerSlot(slotId);
+      }
+
+      row.appendChild(cell);
+    }
+    grid.appendChild(row);
+  });
+}
+
+function selectPickerSlot(slotId) {
+  chosenSlot = slotId;
+  document.getElementById('spiSlot').textContent = slotId;
+  document.getElementById('confirmSlotBtn').disabled = false;
+  // re-render to show selection highlight
+  renderSlotPicker(latestConfig, latestLayout);
+}
+
+function confirmSlotChoice() {
+  if (!chosenSlot) return;
+  document.getElementById('chosenSlotValue').textContent = chosenSlot;
+  document.getElementById('chosenSlotDisplay').classList.remove('hidden');
+  document.getElementById('slotPickerOverlay').classList.add('hidden');
+  showToast(`Slot ${chosenSlot} selected`, 'info');
+}
+
+function clearChosenSlot() {
+  chosenSlot = null;
+  document.getElementById('chosenSlotDisplay').classList.add('hidden');
+  document.getElementById('chosenSlotValue').textContent = '—';
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -273,10 +402,7 @@ async function parkVehicle() {
   msgEl.textContent = '';
   msgEl.className   = 'form-msg';
 
-  if (!plate) {
-    setMsg(msgEl, 'Please enter a vehicle number.', 'error');
-    return;
-  }
+  if (!plate) { setMsg(msgEl, 'Please enter a vehicle number.', 'error'); return; }
 
   const plateRegex = /^[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}$/;
   if (!plateRegex.test(plate)) {
@@ -284,35 +410,45 @@ async function parkVehicle() {
     return;
   }
 
+  // manual mode but no slot chosen yet
+  if (assignMode === 'manual' && !chosenSlot) {
+    setMsg(msgEl, 'Please choose a slot from the picker first.', 'error');
+    openSlotPicker();
+    return;
+  }
+
+  const body = { number_plate: plate, vehicle_type: selectedType };
+  if (assignMode === 'manual' && chosenSlot) {
+    body.preferred_slot = chosenSlot;
+  }
+
   try {
     const res  = await fetch('/api/park', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ number_plate: plate, vehicle_type: selectedType })
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
     });
     const data = await res.json();
 
-    if (!data.success) {
-      setMsg(msgEl, data.message, 'error');
-      return;
-    }
+    if (!data.success) { setMsg(msgEl, data.message, 'error'); return; }
 
+    // reset form
     document.getElementById('parkPlate').value = '';
+    clearChosenSlot();
+    setAssignMode('auto');
 
     if (data.queued) {
       setMsg(msgEl, data.message, 'info');
       showToast('Added to waiting queue', 'info');
       showEntryReceipt(data, true);
     } else {
-      setMsg(msgEl, `Parked at slot ${data.slot}`, 'success');
+      const label = data.manual_slot ? `Parked at your chosen slot ${data.slot}` : `Auto-assigned to slot ${data.slot}`;
+      setMsg(msgEl, label, 'success');
       if (data.nearly_full) showToast('⚠ Parking lot is nearly full!', 'info');
       showEntryReceipt(data, false);
     }
 
     pollStatus();
-  } catch (e) {
-    setMsg(msgEl, 'Server error. Try again.', 'error');
-  }
+  } catch (e) { setMsg(msgEl, 'Server error. Try again.', 'error'); }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -324,23 +460,16 @@ async function exitVehicle() {
   msgEl.textContent = '';
   msgEl.className   = 'form-msg';
 
-  if (!identifier) {
-    setMsg(msgEl, 'Please enter a Ticket ID or Vehicle Number.', 'error');
-    return;
-  }
+  if (!identifier) { setMsg(msgEl, 'Please enter a Ticket ID or Vehicle Number.', 'error'); return; }
 
   try {
     const res  = await fetch('/api/exit', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ identifier })
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ identifier })
     });
     const data = await res.json();
 
-    if (!data.success) {
-      setMsg(msgEl, data.message, 'error');
-      return;
-    }
+    if (!data.success) { setMsg(msgEl, data.message, 'error'); return; }
 
     document.getElementById('exitIdentifier').value = '';
     setMsg(msgEl, `Exit processed — ₹${data.fee} charged`, 'success');
@@ -352,11 +481,8 @@ async function exitVehicle() {
         'info'
       );
     }
-
     pollStatus();
-  } catch (e) {
-    setMsg(msgEl, 'Server error. Try again.', 'error');
-  }
+  } catch (e) { setMsg(msgEl, 'Server error. Try again.', 'error'); }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -366,8 +492,7 @@ function showEntryReceipt(data, queued) {
   document.getElementById('receiptIcon').textContent  = '🎫';
   document.getElementById('receiptTitle').textContent = queued ? 'QUEUE TICKET' : 'ENTRY TICKET';
 
-  const body = document.getElementById('receiptBody');
-  body.innerHTML = `
+  document.getElementById('receiptBody').innerHTML = `
     <div class="receipt-row">
       <span class="r-label">Vehicle Number</span>
       <span class="r-value">${data.number_plate}</span>
@@ -383,7 +508,7 @@ function showEntryReceipt(data, queued) {
     </div>` : `
     <div class="receipt-row">
       <span class="r-label">Assigned Slot</span>
-      <span class="r-value">${data.slot}</span>
+      <span class="r-value">${data.slot}${data.manual_slot ? ' (your choice)' : ' (auto)'}</span>
     </div>
     <div class="receipt-row">
       <span class="r-label">Entry Time</span>
@@ -391,7 +516,6 @@ function showEntryReceipt(data, queued) {
     </div>`}
   `;
 
-  buildPrintArea(body.innerHTML, queued ? 'QUEUE TICKET' : 'ENTRY TICKET');
   document.getElementById('receiptOverlay').classList.remove('hidden');
 }
 
@@ -399,17 +523,13 @@ function showExitReceipt(data) {
   document.getElementById('receiptIcon').textContent  = '💳';
   document.getElementById('receiptTitle').textContent = 'EXIT RECEIPT';
 
-  // calculate duration string
   const entry    = new Date(`1970-01-01T${data.entry_time}`);
   const exitT    = new Date(`1970-01-01T${data.exit_time}`);
   let   diffMins = Math.round((exitT - entry) / 60000);
   if (diffMins < 0) diffMins += 24 * 60;
-  const durStr   = diffMins < 60
-    ? `${diffMins} min`
-    : `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
+  const durStr   = diffMins < 60 ? `${diffMins} min` : `${Math.floor(diffMins/60)}h ${diffMins%60}m`;
 
-  const body = document.getElementById('receiptBody');
-  body.innerHTML = `
+  document.getElementById('receiptBody').innerHTML = `
     <div class="receipt-row">
       <span class="r-label">Vehicle Number</span>
       <span class="r-value">${data.number_plate}</span>
@@ -440,32 +560,11 @@ function showExitReceipt(data) {
     </div>
   `;
 
-  buildPrintArea(body.innerHTML, 'EXIT RECEIPT');
   document.getElementById('receiptOverlay').classList.remove('hidden');
 }
 
-function buildPrintArea(html, title) {
-  document.getElementById('printArea').innerHTML = `
-    <div style="font-family:monospace;padding:20px;max-width:320px;">
-      <div style="text-align:center;font-weight:bold;margin-bottom:12px;">
-        🅿 SMART PARKING SYSTEM<br>
-        <small>${title}</small>
-      </div>
-      ${html}
-      <div style="text-align:center;margin-top:12px;font-size:0.7rem;color:#666;">
-        Thank you for using Smart Parking
-      </div>
-    </div>
-  `;
-}
-
-function closeReceipt() {
-  document.getElementById('receiptOverlay').classList.add('hidden');
-}
-
-function printReceipt() {
-  window.print();
-}
+function closeReceipt() { document.getElementById('receiptOverlay').classList.add('hidden'); }
+function printReceipt() { window.print(); }
 
 /* ══════════════════════════════════════════════════════════
    CAMERA
@@ -474,7 +573,6 @@ function openCamera(mode) {
   cameraMode    = mode;
   capturedPlate = null;
 
-  // Reset UI state
   document.getElementById('ocrPlate').textContent  = '—';
   document.getElementById('ocrStatus').textContent = '';
   document.getElementById('usePlateBtn').classList.add('hidden');
@@ -482,32 +580,26 @@ function openCamera(mode) {
   document.getElementById('manualEntryBody').classList.remove('open');
   document.getElementById('manualToggle').classList.remove('open');
   document.getElementById('manualPlateInput').value = '';
-
   document.getElementById('cameraOverlay').classList.remove('hidden');
 
-  const constraints = {
+  navigator.mediaDevices.getUserMedia({
     video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-  };
-
-  navigator.mediaDevices.getUserMedia(constraints)
-    .then(stream => {
-      cameraStream = stream;
-      const video  = document.getElementById('cameraFeed');
-      video.srcObject = stream;
-      video.play();
-    })
-    .catch(err => {
-      document.getElementById('ocrStatus').textContent = '⚠ Camera access denied. Use manual entry below.';
-      document.getElementById('manualEntryBody').classList.add('open');
-      document.getElementById('manualToggle').classList.add('open');
-    });
+  })
+  .then(stream => {
+    cameraStream = stream;
+    const video  = document.getElementById('cameraFeed');
+    video.srcObject = stream;
+    video.play();
+  })
+  .catch(() => {
+    document.getElementById('ocrStatus').textContent = '⚠ Camera access denied. Use manual entry below.';
+    document.getElementById('manualEntryBody').classList.add('open');
+    document.getElementById('manualToggle').classList.add('open');
+  });
 }
 
 function closeCamera() {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(t => t.stop());
-    cameraStream = null;
-  }
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
   document.getElementById('cameraFeed').srcObject = null;
   document.getElementById('cameraOverlay').classList.add('hidden');
 }
@@ -532,8 +624,7 @@ async function captureFrame() {
     const result = await Tesseract.recognize(canvas, 'eng', {
       logger: m => {
         if (m.status === 'recognizing text') {
-          document.getElementById('ocrStatus').textContent =
-            `Scanning… ${Math.round(m.progress * 100)}%`;
+          document.getElementById('ocrStatus').textContent = `Scanning… ${Math.round(m.progress * 100)}%`;
         }
       }
     });
@@ -550,9 +641,7 @@ async function captureFrame() {
       document.getElementById('captureBtn').classList.add('hidden');
     } else {
       document.getElementById('ocrPlate').textContent  = raw.slice(0, 12) || '—';
-      document.getElementById('ocrStatus').textContent =
-        `No valid plate found (conf ${conf}%). Try again or enter manually.`;
-      // auto-expand manual entry on failure
+      document.getElementById('ocrStatus').textContent = `No valid plate found (conf ${conf}%). Try again or enter manually.`;
       document.getElementById('manualEntryBody').classList.add('open');
       document.getElementById('manualToggle').classList.add('open');
     }
@@ -563,11 +652,7 @@ async function captureFrame() {
   }
 }
 
-function useCapturedPlate() {
-  if (!capturedPlate) return;
-  fillPlateField(capturedPlate);
-  closeCamera();
-}
+function useCapturedPlate() { if (capturedPlate) { fillPlateField(capturedPlate); closeCamera(); } }
 
 function toggleManualEntry() {
   const body   = document.getElementById('manualEntryBody');
@@ -579,18 +664,15 @@ function toggleManualEntry() {
 function submitManualPlate() {
   const val   = document.getElementById('manualPlateInput').value.trim().toUpperCase();
   const regex = /^[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}$/;
-  if (!val) { showToast('Enter a plate number', 'error'); return; }
+  if (!val)             { showToast('Enter a plate number', 'error'); return; }
   if (!regex.test(val)) { showToast('Invalid format: AA00AA0000', 'error'); return; }
   fillPlateField(val);
   closeCamera();
 }
 
 function fillPlateField(plate) {
-  if (cameraMode === 'park') {
-    document.getElementById('parkPlate').value = plate;
-  } else if (cameraMode === 'exit') {
-    document.getElementById('exitIdentifier').value = plate;
-  }
+  if (cameraMode === 'park')      document.getElementById('parkPlate').value      = plate;
+  else if (cameraMode === 'exit') document.getElementById('exitIdentifier').value = plate;
   showToast(`Plate set: ${plate}`, 'success');
 }
 
@@ -599,7 +681,7 @@ function fillPlateField(plate) {
 ══════════════════════════════════════════════════════════ */
 async function confirmReset() {
   const pin = prompt('Enter admin PIN to reset (default: 0000)');
-  if (pin === null) return;           // cancelled
+  if (pin === null) return;
   if (pin !== '0000') { showToast('Incorrect PIN', 'error'); return; }
 
   try {
@@ -610,16 +692,18 @@ async function confirmReset() {
       document.getElementById('app').classList.add('hidden');
       document.getElementById('setupOverlay').classList.remove('hidden');
       document.getElementById('rowBuilder').innerHTML = '';
+      clearChosenSlot();
+      assignMode   = 'auto';
+      latestLayout = {};
+      latestConfig = [];
       addRow();
       showToast('System reset', 'info');
     }
-  } catch (e) {
-    showToast('Reset failed', 'error');
-  }
+  } catch (e) { showToast('Reset failed', 'error'); }
 }
 
 /* ══════════════════════════════════════════════════════════
-   TOAST
+   TOAST & HELPERS
 ══════════════════════════════════════════════════════════ */
 let toastTimer = null;
 function showToast(msg, type) {
@@ -631,9 +715,6 @@ function showToast(msg, type) {
   toastTimer = setTimeout(() => el.classList.add('hidden'), 3200);
 }
 
-/* ══════════════════════════════════════════════════════════
-   HELPERS
-══════════════════════════════════════════════════════════ */
 function setMsg(el, msg, type) {
   el.textContent = msg;
   el.className   = `form-msg ${type}`;
