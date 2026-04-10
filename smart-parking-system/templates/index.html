@@ -13,22 +13,52 @@
 
 <!-- ══════════════════════ SETUP MODAL ══════════════════════ -->
 <div id="setupOverlay" class="overlay">
-  <div class="modal">
+  <div class="modal setup-modal">
     <div class="modal-header">
       <div class="modal-icon">🅿</div>
       <h2>CONFIGURE PARKING LOT</h2>
       <p>Define your layout — each row can have a different number of slots</p>
     </div>
     <div class="modal-body">
-      <div class="row-builder" id="rowBuilder"></div>
-      <div class="row-actions">
-        <button class="btn-add-row" onclick="addRow()">ADD ROW</button>
+
+      <!-- FLOOR MODE TOGGLE -->
+      <div class="floor-mode-toggle">
+        <button class="fmode-btn active" id="fmodeSingle" onclick="setFloorMode('single')">
+          <span class="fmode-icon">🏢</span>
+          <span class="fmode-label">SINGLE FLOOR</span>
+          <span class="fmode-sub">One level, multiple rows</span>
+        </button>
+        <button class="fmode-btn" id="fmodeMulti" onclick="setFloorMode('multi')">
+          <span class="fmode-icon">🏗</span>
+          <span class="fmode-label">MULTI-FLOOR</span>
+          <span class="fmode-sub">Multiple levels (optional)</span>
+        </button>
       </div>
+
+      <!-- SINGLE FLOOR CONFIG -->
+      <div id="singleFloorConfig">
+        <div class="section-label">ROW CONFIGURATION</div>
+        <div class="row-builder" id="rowBuilder"></div>
+        <div class="row-actions">
+          <button class="btn-add-row" onclick="addRow()">ADD ROW</button>
+        </div>
+      </div>
+
+      <!-- MULTI FLOOR CONFIG -->
+      <div id="multiFloorConfig" class="hidden">
+        <div class="floor-builder" id="floorBuilder"></div>
+        <div class="row-actions">
+          <button class="btn-add-floor" onclick="addFloor()">+ ADD FLOOR</button>
+        </div>
+      </div>
+
+      <!-- LAYOUT PREVIEW -->
       <div class="layout-preview" id="layoutPreview">
         <span class="preview-label">LAYOUT PREVIEW</span>
         <div class="preview-grid" id="previewGrid"></div>
         <div class="preview-stats" id="previewStats"></div>
       </div>
+
     </div>
     <div class="modal-footer">
       <button class="btn-primary" onclick="submitSetup()">CREATE PARKING LOT</button>
@@ -50,14 +80,16 @@
         <span class="spi-label">VEHICLE</span>
         <span class="spi-plate" id="spiPlate">—</span>
         <span class="spi-sep">·</span>
-        <span class="spi-label">SELECTED SLOT</span>
+        <span class="spi-label">SELECTED</span>
         <span class="spi-slot" id="spiSlot">NONE</span>
       </div>
+      <!-- Floor tabs (shown only in multi-floor mode) -->
+      <div class="picker-floor-tabs hidden" id="pickerFloorTabs"></div>
       <div class="slot-picker-grid" id="slotPickerGrid"></div>
       <div class="slot-picker-legend">
-        <span><span class="sp-dot available"></span> AVAILABLE — click to select</span>
-        <span><span class="sp-dot selected"></span> YOUR CHOICE</span>
-        <span><span class="sp-dot taken"></span> OCCUPIED</span>
+        <span><span class="sp-dot available"></span>AVAILABLE — click to select</span>
+        <span><span class="sp-dot selected"></span>YOUR CHOICE</span>
+        <span><span class="sp-dot taken"></span>OCCUPIED</span>
       </div>
     </div>
     <div class="modal-footer" style="display:flex;gap:10px;">
@@ -80,30 +112,27 @@
       <div class="camera-feed-wrap">
         <video id="cameraFeed" autoplay playsinline></video>
         <div class="camera-overlay-frame">
-          <div class="corner tl"></div>
-          <div class="corner tr"></div>
-          <div class="corner bl"></div>
-          <div class="corner br"></div>
+          <div class="corner tl"></div><div class="corner tr"></div>
+          <div class="corner bl"></div><div class="corner br"></div>
           <div class="scan-line"></div>
         </div>
         <canvas id="cameraCanvas" style="display:none;"></canvas>
       </div>
-      <div class="ocr-result" id="ocrResult">
+      <div class="ocr-result">
         <span class="ocr-label">DETECTED PLATE</span>
-        <div class="ocr-plate" id="ocrPlate">—</div>
+        <div class="ocr-plate"  id="ocrPlate">—</div>
         <div class="ocr-status" id="ocrStatus"></div>
       </div>
       <div class="manual-entry-section">
         <button class="manual-entry-toggle" id="manualToggle" onclick="toggleManualEntry()">
-          <span>✏️ &nbsp; ENTER NUMBER PLATE MANUALLY</span>
+          <span>✏️ &nbsp;ENTER NUMBER PLATE MANUALLY</span>
           <span class="toggle-arrow">▼</span>
         </button>
         <div class="manual-entry-body" id="manualEntryBody">
           <label>VEHICLE NUMBER</label>
           <div class="manual-entry-row">
-            <input type="text" id="manualPlateInput"
-                   placeholder="e.g. TS09AB1234" maxlength="10"
-                   oninput="this.value=this.value.toUpperCase()"
+            <input type="text" id="manualPlateInput" placeholder="e.g. TS09AB1234"
+                   maxlength="10" oninput="this.value=this.value.toUpperCase()"
                    onkeydown="if(event.key==='Enter') submitManualPlate()" />
             <button class="btn-manual-submit" onclick="submitManualPlate()">USE THIS</button>
           </div>
@@ -112,9 +141,9 @@
       </div>
     </div>
     <div class="camera-actions">
-      <button class="btn-capture"   id="captureBtn"  onclick="captureFrame()">📸 CAPTURE &amp; SCAN</button>
-      <button class="btn-use-plate hidden" id="usePlateBtn" onclick="useCapturedPlate()">✅ USE THIS PLATE</button>
-      <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
+      <button class="btn-capture"            id="captureBtn"  onclick="captureFrame()">📸 CAPTURE &amp; SCAN</button>
+      <button class="btn-use-plate hidden"   id="usePlateBtn" onclick="useCapturedPlate()">✅ USE THIS PLATE</button>
+      <button class="btn-cancel-cam"                          onclick="closeCamera()">✕ CANCEL</button>
     </div>
   </div>
 </div>
@@ -149,20 +178,16 @@
     </div>
     <div class="header-stats">
       <div class="hstat" id="hstatCapacity">
-        <div class="hstat-val">—</div>
-        <div class="hstat-label">CAPACITY</div>
+        <div class="hstat-val">—</div><div class="hstat-label">CAPACITY</div>
       </div>
       <div class="hstat" id="hstatOccupied">
-        <div class="hstat-val">—</div>
-        <div class="hstat-label">OCCUPIED</div>
+        <div class="hstat-val">—</div><div class="hstat-label">OCCUPIED</div>
       </div>
       <div class="hstat" id="hstatEmpty">
-        <div class="hstat-val">—</div>
-        <div class="hstat-label">AVAILABLE</div>
+        <div class="hstat-val">—</div><div class="hstat-label">AVAILABLE</div>
       </div>
       <div class="hstat" id="hstatQueue">
-        <div class="hstat-val">—</div>
-        <div class="hstat-label">IN QUEUE</div>
+        <div class="hstat-val">—</div><div class="hstat-label">IN QUEUE</div>
       </div>
     </div>
     <div class="header-right">
@@ -176,7 +201,7 @@
 
   <!-- OCCUPANCY BAR -->
   <div class="occ-bar-wrap">
-    <div class="occ-bar-fill" id="occBarFill" style="width:0%"></div>
+    <div class="occ-bar-fill"  id="occBarFill"  style="width:0%"></div>
     <div class="occ-bar-label" id="occBarLabel">0% OCCUPIED</div>
   </div>
 
@@ -209,16 +234,24 @@
           </div>
         </div>
 
-        <!-- SLOT ASSIGNMENT MODE TOGGLE -->
+        <!-- FLOOR PREFERENCE (multi-floor only, optional) -->
+        <div class="form-group hidden" id="floorPrefGroup">
+          <label>PREFERRED FLOOR <span class="optional-tag">OPTIONAL</span></label>
+          <select id="floorPrefSelect" class="floor-select">
+            <option value="">Any floor (auto-assign)</option>
+          </select>
+        </div>
+
+        <!-- SLOT ASSIGNMENT MODE -->
         <div class="form-group">
           <label>SLOT ASSIGNMENT</label>
           <div class="assign-toggle">
-            <button class="assign-btn active" id="assignAuto" onclick="setAssignMode('auto')">
+            <button class="assign-btn active" id="assignAuto"   onclick="setAssignMode('auto')">
               <span class="assign-icon">⚡</span>
               <span class="assign-label">AUTO-ASSIGN</span>
               <span class="assign-sub">System picks best slot</span>
             </button>
-            <button class="assign-btn" id="assignManual" onclick="setAssignMode('manual')">
+            <button class="assign-btn"        id="assignManual" onclick="setAssignMode('manual')">
               <span class="assign-icon">🎯</span>
               <span class="assign-label">PICK A SLOT</span>
               <span class="assign-sub">Choose from blueprint</span>
@@ -226,7 +259,7 @@
           </div>
         </div>
 
-        <!-- CHOSEN SLOT DISPLAY (shown when manual mode + slot selected) -->
+        <!-- CHOSEN SLOT DISPLAY -->
         <div class="chosen-slot-display hidden" id="chosenSlotDisplay">
           <span class="cs-label">CHOSEN SLOT</span>
           <span class="cs-value" id="chosenSlotValue">—</span>
@@ -276,7 +309,12 @@
             <span><span class="legend-dot occupied"></span>OCCUPIED</span>
           </div>
         </div>
+        <!-- Floor tabs (multi-floor only) -->
+        <div class="floor-tabs hidden" id="floorTabs"></div>
         <div class="blueprint-grid" id="blueprintGrid"></div>
+
+        <!-- Floor summary bar (multi-floor only) -->
+        <div class="floor-summary hidden" id="floorSummary"></div>
       </div>
 
       <!-- QUEUE -->
