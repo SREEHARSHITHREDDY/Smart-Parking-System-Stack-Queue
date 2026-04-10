@@ -8,7 +8,7 @@ from storage.file_handler import save_data, load_data
 app = Flask(__name__)
 
 parking_lot = None
-billing = Billing()
+billing     = Billing()
 
 
 # ─────────────────────────────────────────────
@@ -33,17 +33,21 @@ def status():
     for slot, info in parking_lot.layout.items():
         layout_data[slot] = {
             "status":  info["status"],
-            "vehicle": info["vehicle"].to_dict() if info["vehicle"] else None
+            "vehicle": info["vehicle"].to_dict() if info["vehicle"] else None,
+            "floor":   info.get("floor")
         }
 
     return jsonify({
-        "setup":      True,
-        "row_config": parking_lot.row_config,
-        "layout":     layout_data,
-        "queue":      [v.to_dict() for v in parking_lot.queue],
-        "revenue":    parking_lot.revenue,
-        "stats":      parking_lot.get_stats(),
-        "rates":      billing.get_rate_info()
+        "setup":        True,
+        "row_config":   parking_lot.row_config,
+        "floor_config": parking_lot.floor_config,
+        "multi_floor":  parking_lot.multi_floor,
+        "layout":       layout_data,
+        "queue":        [v.to_dict() for v in parking_lot.queue],
+        "revenue":      parking_lot.revenue,
+        "stats":        parking_lot.get_stats(),
+        "floor_stats":  parking_lot.get_floor_stats(),
+        "rates":        billing.get_rate_info()
     })
 
 
@@ -55,30 +59,53 @@ def status():
 def setup():
     global parking_lot
 
-    data       = request.json
-    row_config = data.get('row_config', [])
+    data         = request.json
+    multi_floor  = data.get('multi_floor', False)
+    floor_config = data.get('floor_config', [])
+    row_config   = data.get('row_config', [])
 
-    if not row_config:
-        return jsonify({"success": False, "message": "Row configuration is empty"})
+    if multi_floor:
+        # ── MULTI-FLOOR VALIDATION ──────────────────────────
+        if not floor_config:
+            return jsonify({"success": False, "message": "Floor configuration is empty"})
 
-    if not all(isinstance(n, int) and 1 <= n <= 20 for n in row_config):
-        return jsonify({"success": False, "message": "Each row must have 1 to 20 slots"})
+        if len(floor_config) > 10:
+            return jsonify({"success": False, "message": "Maximum 10 floors allowed"})
 
-    if len(row_config) > 26:
-        return jsonify({"success": False, "message": "Maximum 26 rows allowed"})
+        for fl in floor_config:
+            if not fl.get("name", "").strip():
+                return jsonify({"success": False, "message": "Each floor must have a name"})
+            rows = fl.get("rows", [])
+            if not rows:
+                return jsonify({"success": False, "message": f"Floor '{fl['name']}' has no rows"})
+            if len(rows) > 26:
+                return jsonify({"success": False, "message": f"Floor '{fl['name']}': max 26 rows"})
+            if not all(isinstance(n, int) and 1 <= n <= 20 for n in rows):
+                return jsonify({"success": False, "message": f"Floor '{fl['name']}': each row must have 1–20 slots"})
 
-    parking_lot = ParkingLot(row_config)
+        parking_lot = ParkingLot(row_config=None, floor_config=floor_config)
+
+    else:
+        # ── SINGLE FLOOR VALIDATION ──────────────────────────
+        if not row_config:
+            return jsonify({"success": False, "message": "Row configuration is empty"})
+        if not all(isinstance(n, int) and 1 <= n <= 20 for n in row_config):
+            return jsonify({"success": False, "message": "Each row must have 1 to 20 slots"})
+        if len(row_config) > 26:
+            return jsonify({"success": False, "message": "Maximum 26 rows allowed"})
+
+        parking_lot = ParkingLot(row_config=row_config)
+
     save_data(parking_lot)
 
     return jsonify({
         "success": True,
-        "message": f"Parking lot created! {len(row_config)} rows, {parking_lot.capacity} total slots."
+        "message": f"Parking lot created! {parking_lot.capacity} total slots."
     })
 
 
 # ─────────────────────────────────────────────
 # API: PARK VEHICLE
-# Supports optional preferred_slot parameter
 # ─────────────────────────────────────────────
 
 @app.route('/api/park', methods=['POST'])
@@ -88,46 +115,32 @@ def park():
     if not parking_lot:
         return jsonify({"success": False, "message": "Parking lot not configured yet"})
 
-    data           = request.json
-    number_plate   = data.get('number_plate', '').strip().upper()
-    vehicle_type   = data.get('vehicle_type', 'car').strip().lower()
-    preferred_slot = data.get('preferred_slot', '').strip().upper()
+    data            = request.json
+    number_plate    = data.get('number_plate', '').strip().upper()
+    vehicle_type    = data.get('vehicle_type', 'car').strip().lower()
+    preferred_slot  = data.get('preferred_slot', '').strip().upper()
+    preferred_floor = data.get('preferred_floor', '').strip()
 
-    # Validate plate format
     if not validate_vehicle_number(number_plate):
-        return jsonify({
-            "success": False,
-            "message": "Invalid format. Use: AA00AA0000 (e.g. TS09AB1234)"
-        })
+        return jsonify({"success": False, "message": "Invalid format. Use: AA00AA0000 (e.g. TS09AB1234)"})
 
-    # Duplicate check — already parked
     for info in parking_lot.layout.values():
         if info["vehicle"] and info["vehicle"].number_plate == number_plate:
             return jsonify({"success": False, "message": "Vehicle is already parked"})
 
-    # Duplicate check — already in queue
     for v in parking_lot.queue:
         if v.number_plate == number_plate:
             return jsonify({"success": False, "message": "Vehicle is already in the waiting queue"})
 
     vehicle = Vehicle(number_plate, vehicle_type)
 
-    # ── PREFERRED SLOT LOGIC ──────────────────────────────
+    # ── PREFERRED SPECIFIC SLOT ───────────────────────────────
     if preferred_slot:
-        # Check slot exists
         if preferred_slot not in parking_lot.layout:
             return jsonify({"success": False, "message": f"Slot {preferred_slot} does not exist"})
+        if parking_lot.layout[preferred_slot]["status"] == "occupied":
+            return jsonify({"success": False, "message": f"Slot {preferred_slot} was just taken. Please choose another."})
 
-        slot_info = parking_lot.layout[preferred_slot]
-
-        # Check slot is still available
-        if slot_info["status"] == "occupied":
-            return jsonify({
-                "success": False,
-                "message": f"Slot {preferred_slot} was just taken. Please choose another or use auto-assign."
-            })
-
-        # Assign directly to preferred slot
         parking_lot.layout[preferred_slot]["status"]  = "occupied"
         parking_lot.layout[preferred_slot]["vehicle"] = vehicle
         parking_lot.stack.append(vehicle)
@@ -146,18 +159,21 @@ def park():
             "manual_slot":  True
         })
 
-    # ── AUTO-ASSIGN LOGIC ─────────────────────────────────
-    result = parking_lot.park_vehicle(vehicle)
+    # ── AUTO-ASSIGN (with optional floor preference) ──────────
+    result = parking_lot.park_vehicle(
+        vehicle,
+        preferred_floor=preferred_floor if preferred_floor else None
+    )
     save_data(parking_lot)
 
     if result["queued"]:
         return jsonify({
-            "success":         True,
-            "queued":          True,
-            "message":         f"Parking full! Added to queue at position #{result['queue_position']}",
-            "ticket_id":       vehicle.ticket_id,
-            "number_plate":    vehicle.number_plate,
-            "queue_position":  result["queue_position"]
+            "success":        True,
+            "queued":         True,
+            "message":        f"Parking full! Added to queue at position #{result['queue_position']}",
+            "ticket_id":      vehicle.ticket_id,
+            "number_plate":   vehicle.number_plate,
+            "queue_position": result["queue_position"]
         })
 
     return jsonify({
@@ -225,14 +241,23 @@ def bootstrap():
         return
 
     try:
-        parking_lot          = ParkingLot(data["row_config"])
-        parking_lot.revenue  = data.get("revenue", 0)
+        multi_floor  = data.get("multi_floor", False)
+        floor_config = data.get("floor_config")
+
+        if multi_floor and floor_config:
+            parking_lot = ParkingLot(row_config=None, floor_config=floor_config)
+        else:
+            parking_lot = ParkingLot(row_config=data["row_config"])
+
+        parking_lot.revenue = data.get("revenue", 0)
 
         for slot, sdata in data.get("layout", {}).items():
             if slot in parking_lot.layout and sdata.get("vehicle"):
                 v = Vehicle.from_dict(sdata["vehicle"])
                 parking_lot.layout[slot]["status"]  = "occupied"
                 parking_lot.layout[slot]["vehicle"] = v
+                if sdata.get("floor"):
+                    parking_lot.layout[slot]["floor"] = sdata["floor"]
                 parking_lot.stack.append(v)
 
         for vdata in data.get("queue", []):
