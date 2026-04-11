@@ -1030,32 +1030,58 @@ async function runOcrScan() {
   scanCooldown = true;
 
   try {
-    const canvas = document.getElementById('cameraCanvas');
-    canvas.width  = video.videoWidth  || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx     = canvas.getContext('2d');
+    const vw = video.videoWidth  || 640;
+    const vh = video.videoHeight || 480;
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // ── STEP 1: CAPTURE FULL FRAME ────────────────────────
+    const fullCanvas = document.getElementById('cameraCanvas');
+    fullCanvas.width  = vw;
+    fullCanvas.height = vh;
+    const fullCtx = fullCanvas.getContext('2d');
+    fullCtx.drawImage(video, 0, 0, vw, vh);
 
-    // ── PREPROCESSING ─────────────────────
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data      = imageData.data;
-    const factor    = (259 * (80 + 255)) / (255 * (259 - 80));
+    // ── STEP 2: CROP CENTRE REGION ────────────────────────
+    // Plates are typically in the centre 80% width, middle 60% height
+    const cropX = Math.floor(vw * 0.10);
+    const cropY = Math.floor(vh * 0.25);
+    const cropW = Math.floor(vw * 0.80);
+    const cropH = Math.floor(vh * 0.50);
 
-    for (let i = 0; i < data.length; i += 4) {
-      const grey = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-      const val  = Math.min(255, Math.max(0, factor * (grey - 128) + 128));
-      data[i] = data[i+1] = data[i+2] = val;
-    }
-    ctx.putImageData(imageData, 0, 0);
+    // Create processing canvas — upscale 2x for better OCR
+    const scale     = 2;
+    const procCanvas = document.createElement('canvas');
+    procCanvas.width  = cropW * scale;
+    procCanvas.height = cropH * scale;
+    const procCtx = procCanvas.getContext('2d');
 
-    // ── OCR ───────────────────────────────
+    // Draw cropped + upscaled region
+    procCtx.drawImage(
+      fullCanvas,
+      cropX, cropY, cropW, cropH,        // source crop
+      0, 0, procCanvas.width, procCanvas.height  // dest (scaled up)
+    );
+
+    // ── STEP 3: PREPROCESS FOR OCR ────────────────────────
+    const processedCanvas = applyPreprocessing(procCanvas);
+
+    // ── STEP 4: OCR ON PROCESSED IMAGE ───────────────────
     await initOcrWorker();
-    const result  = await ocrWorker.recognize(canvas);
-    const rawFull = result.data.text;
-    const conf    = Math.round(result.data.confidence);
-    const plate   = extractBestPlate(rawFull);
+    const result   = await ocrWorker.recognize(processedCanvas);
+    const rawFull  = result.data.text;
+    const conf     = Math.round(result.data.confidence);
+    let   plate    = extractBestPlate(rawFull);
 
+    // ── STEP 5: TRY INVERTED IF NO MATCH ─────────────────
+    // Handles dark/night plates (white bg → black text already done)
+    // Some plates: black bg + white text — invert helps
+    if (!plate) {
+      const invertedCanvas = applyPreprocessing(procCanvas, true);
+      const result2  = await ocrWorker.recognize(invertedCanvas);
+      const rawFull2 = result2.data.text;
+      plate = extractBestPlate(rawFull2);
+    }
+
+    // ── STEP 6: HANDLE RESULT ─────────────────────────────
     if (plate) {
       lastDetected  = plate;
       capturedPlate = plate;
@@ -1065,6 +1091,7 @@ async function runOcrScan() {
       document.getElementById('ocrSuggestion').classList.add('hidden');
       document.getElementById('usePlateBtn').classList.remove('hidden');
 
+      // Auto-fill manual input if empty
       const manualInput = document.getElementById('manualPlateInput');
       if (!manualInput.value) {
         manualInput.value = plate;
@@ -1077,7 +1104,7 @@ async function runOcrScan() {
 
     } else {
       const cleaned = cleanOcrText(rawFull);
-      setOcrStrip('NO PLATE DETECTED', `Conf ${conf}% — hold steady`, false);
+      setOcrStrip('NO PLATE DETECTED', `Conf ${conf}% — aim at plate`, false);
       document.getElementById('ocrStrip').style.borderColor = 'var(--border)';
       document.getElementById('usePlateBtn').classList.add('hidden');
 
@@ -1094,6 +1121,99 @@ async function runOcrScan() {
   } finally {
     scanCooldown = false;
   }
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   IMAGE PREPROCESSING — Stage 2.2
+   Greyscale → Adaptive threshold → Optional invert
+══════════════════════════════════════════════════════════ */
+
+function applyPreprocessing(sourceCanvas, invert = false) {
+  const w   = sourceCanvas.width;
+  const h   = sourceCanvas.height;
+  const out = document.createElement('canvas');
+  out.width  = w;
+  out.height = h;
+  const ctx = out.getContext('2d');
+  ctx.drawImage(sourceCanvas, 0, 0);
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data      = imageData.data;
+
+  // ── 1. GREYSCALE ──────────────────────────
+  const grey = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const r = data[i * 4];
+    const g = data[i * 4 + 1];
+    const b = data[i * 4 + 2];
+    grey[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+  }
+
+  // ── 2. GAUSSIAN BLUR (3x3) — reduce noise ─
+  const blurred = new Uint8Array(w * h);
+  const kernel  = [1,2,1, 2,4,2, 1,2,1];
+  const kSum    = 16;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      let sum = 0;
+      let ki  = 0;
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          sum += grey[(y + ky) * w + (x + kx)] * kernel[ki++];
+        }
+      }
+      blurred[y * w + x] = sum / kSum;
+    }
+  }
+  // Fill edges
+  for (let x = 0; x < w; x++) {
+    blurred[x]             = grey[x];
+    blurred[(h-1)*w + x]   = grey[(h-1)*w + x];
+  }
+  for (let y = 0; y < h; y++) {
+    blurred[y * w]         = grey[y * w];
+    blurred[y * w + w - 1] = grey[y * w + w - 1];
+  }
+
+  // ── 3. ADAPTIVE THRESHOLD ─────────────────
+  // For each pixel, compare to local average in a window
+  // Makes text sharp black regardless of lighting
+  const blockSize = Math.max(11, Math.floor(Math.min(w, h) / 20) | 1); // must be odd
+  const C         = 8;   // constant subtracted from mean
+  const binary    = new Uint8Array(w * h);
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const half = Math.floor(blockSize / 2);
+      let   sum  = 0;
+      let   cnt  = 0;
+
+      for (let ky = Math.max(0, y - half); ky <= Math.min(h - 1, y + half); ky++) {
+        for (let kx = Math.max(0, x - half); kx <= Math.min(w - 1, x + half); kx++) {
+          sum += blurred[ky * w + kx];
+          cnt++;
+        }
+      }
+
+      const mean     = sum / cnt;
+      const pixelVal = blurred[y * w + x];
+      binary[y * w + x] = pixelVal < (mean - C) ? 0 : 255;
+    }
+  }
+
+  // ── 4. OPTIONAL INVERT ────────────────────
+  for (let i = 0; i < w * h; i++) {
+    let val = binary[i];
+    if (invert) val = 255 - val;
+    data[i * 4]     = val;
+    data[i * 4 + 1] = val;
+    data[i * 4 + 2] = val;
+    data[i * 4 + 3] = 255;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return out;
 }
 
 /* ══════════════════════════════════════════════════════════
