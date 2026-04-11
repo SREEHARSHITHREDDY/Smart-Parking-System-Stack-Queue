@@ -102,49 +102,94 @@
 
 <!-- ══════════════════════ CAMERA MODAL ══════════════════════ -->
 <div id="cameraOverlay" class="overlay hidden">
-  <div class="modal camera-modal">
+  <div class="modal camera-modal-v2">
     <div class="modal-header">
       <div class="modal-icon">📷</div>
       <h2>SCAN NUMBER PLATE</h2>
-      <p>Use camera scan or type the number manually below</p>
+      <p>Camera scans automatically — or type the number on the right</p>
     </div>
-    <div class="camera-body">
-      <div class="camera-feed-wrap">
-        <video id="cameraFeed" autoplay playsinline></video>
-        <div class="camera-overlay-frame">
-          <div class="corner tl"></div><div class="corner tr"></div>
-          <div class="corner bl"></div><div class="corner br"></div>
-          <div class="scan-line"></div>
-        </div>
-        <canvas id="cameraCanvas" style="display:none;"></canvas>
-      </div>
-      <div class="ocr-result">
-        <span class="ocr-label">DETECTED PLATE</span>
-        <div class="ocr-plate"  id="ocrPlate">—</div>
-        <div class="ocr-status" id="ocrStatus"></div>
-      </div>
-      <div class="manual-entry-section">
-        <button class="manual-entry-toggle" id="manualToggle" onclick="toggleManualEntry()">
-          <span>✏️ &nbsp;ENTER NUMBER PLATE MANUALLY</span>
-          <span class="toggle-arrow">▼</span>
-        </button>
-        <div class="manual-entry-body" id="manualEntryBody">
-          <label>VEHICLE NUMBER</label>
-          <div class="manual-entry-row">
-            <input type="text" id="manualPlateInput" placeholder="e.g. TS09AB1234"
-                   maxlength="10" oninput="this.value=this.value.toUpperCase()"
-                   onkeydown="if(event.key==='Enter') submitManualPlate()" />
-            <button class="btn-manual-submit" onclick="submitManualPlate()">USE THIS</button>
+
+    <div class="camera-split">
+
+      <!-- LEFT — Live camera feed -->
+      <div class="camera-left">
+        <div class="camera-feed-wrap">
+          <video id="cameraFeed" autoplay playsinline muted></video>
+          <div class="camera-overlay-frame">
+            <div class="corner tl"></div>
+            <div class="corner tr"></div>
+            <div class="corner bl"></div>
+            <div class="corner br"></div>
+            <div class="scan-line" id="scanLine"></div>
           </div>
-          <span class="manual-hint">Format: AA00AA0000 · Press Enter or click USE THIS</span>
+          <canvas id="cameraCanvas" style="display:none;"></canvas>
+          <!-- Live scan status badge -->
+          <div class="cam-live-badge" id="camLiveBadge">
+            <span class="cam-live-dot"></span> LIVE
+          </div>
+        </div>
+
+        <!-- OCR result strip below video -->
+        <div class="ocr-strip" id="ocrStrip">
+          <div class="ocr-strip-left">
+            <span class="ocr-strip-label">DETECTED</span>
+            <span class="ocr-strip-plate" id="ocrPlate">—</span>
+          </div>
+          <div class="ocr-strip-right">
+            <span class="ocr-strip-conf" id="ocrStatus">Scanning…</span>
+          </div>
+        </div>
+
+        <!-- Use detected plate button -->
+        <button class="btn-use-detected hidden" id="usePlateBtn" onclick="useCapturedPlate()">
+          ✅ USE THIS PLATE
+        </button>
+      </div>
+
+      <!-- RIGHT — Manual entry always visible -->
+      <div class="camera-right">
+        <div class="manual-always">
+          <div class="manual-always-header">
+            <span class="manual-always-icon">✏️</span>
+            <span class="manual-always-title">MANUAL ENTRY</span>
+          </div>
+          <div class="manual-always-hint">
+            Type while camera scans
+          </div>
+          <label class="manual-always-label">VEHICLE NUMBER</label>
+          <input type="text"
+                 id="manualPlateInput"
+                 class="manual-always-input"
+                 placeholder="TS09AB1234"
+                 maxlength="10"
+                 oninput="this.value=this.value.toUpperCase(); validateManualInput(this)"
+                 onkeydown="if(event.key==='Enter') submitManualPlate()" />
+          <div class="manual-format-hint">Format: AA00AA0000</div>
+
+          <!-- Validation indicator -->
+          <div class="manual-validation" id="manualValidation"></div>
+
+          <button class="btn-manual-use" id="manualUseBtn"
+                  onclick="submitManualPlate()" disabled>
+            USE THIS NUMBER
+          </button>
+
+          <!-- Quick plate suggestions if OCR got something partial -->
+          <div class="ocr-suggestion hidden" id="ocrSuggestion">
+            <div class="suggestion-label">OCR DETECTED (PARTIAL)</div>
+            <button class="suggestion-btn" id="suggestionBtn" onclick="useOcrSuggestion()">—</button>
+            <div class="suggestion-hint">Click to copy to input</div>
+          </div>
         </div>
       </div>
+
     </div>
-    <div class="camera-actions">
-      <button class="btn-capture"            id="captureBtn"  onclick="captureFrame()">📸 CAPTURE &amp; SCAN</button>
-      <button class="btn-use-plate hidden"   id="usePlateBtn" onclick="useCapturedPlate()">✅ USE THIS PLATE</button>
-      <button class="btn-cancel-cam"                          onclick="closeCamera()">✕ CANCEL</button>
+
+    <!-- Bottom actions -->
+    <div class="camera-actions-v2">
+      <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
     </div>
+
   </div>
 </div>
 
