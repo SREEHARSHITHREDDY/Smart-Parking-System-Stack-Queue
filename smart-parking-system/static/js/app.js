@@ -908,28 +908,52 @@ function showExitReceipt(data) {
 function closeReceipt() { document.getElementById('receiptOverlay').classList.add('hidden'); }
 function printReceipt() { window.print(); }
 
+/* ── STATE ─ (keep everything above this unchanged) ── */
+
 /* ══════════════════════════════════════════════════════════
-   CAMERA — Stage 2.1
-   Auto-scan, side-by-side, tuned Tesseract for MacBook + Indian plates
+   CAMERA — Stage 2.1 + Plate Format Fix
+   Auto-scan, side-by-side, all Indian plate formats
 ══════════════════════════════════════════════════════════ */
 
-let scanInterval    = null;   // continuous scan loop
-let lastDetected    = null;   // last successfully detected plate
-let scanCooldown    = false;  // prevent overlapping scans
-const PLATE_REGEX   = /[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/;
+let scanInterval    = null;
+let lastDetected    = null;
+let scanCooldown    = false;
 
-// Tesseract worker (reused across scans)
+// ── PLATE MATCHING ────────────────────────
+// Matches all Indian formats:
+// TS09AB1234, TN33J1364, MH12ABC1234
+const PLATE_REGEX = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}/;
+
+// Noise words printed on Indian plates
+const PLATE_NOISE = ['INDIA', 'IND', 'BHARAT', 'BH', 'HSRP',
+                     'INA', 'INIA', 'NDIA', 'INDO'];
+
+function cleanOcrText(raw) {
+  let text = raw.toUpperCase().replace(/\s+/g, '');
+  PLATE_NOISE.forEach(word => { text = text.split(word).join(''); });
+  text = text.replace(/[^A-Z0-9]/g, '');
+  return text;
+}
+
+function extractBestPlate(raw) {
+  const cleaned = cleanOcrText(raw);
+  const matches = cleaned.match(new RegExp(PLATE_REGEX.source, 'g'));
+  if (!matches) return null;
+  return matches.reduce((a, b) => a.length >= b.length ? a : b);
+}
+
+// Tesseract worker reused across scans
 let ocrWorker = null;
 
 async function initOcrWorker() {
   if (ocrWorker) return;
   ocrWorker = await Tesseract.createWorker('eng', 1, {
-    logger: () => {}   // silence internal logs
+    logger: () => {}
   });
   await ocrWorker.setParameters({
-    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-    tessedit_pageseg_mode:   '7',   // PSM 7 — single text line
-    tessedit_ocr_engine_mode:'1',   // OEM 1 — LSTM only
+    tessedit_char_whitelist:  'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+    tessedit_pageseg_mode:    '6',   // PSM 6 — block of text (better for multi-line plates)
+    tessedit_ocr_engine_mode: '1',   // OEM 1 — LSTM only
   });
 }
 
@@ -938,45 +962,37 @@ function openCamera(mode) {
   capturedPlate = null;
   lastDetected  = null;
 
-  // Reset UI
   setOcrStrip('—', 'Starting camera…', false);
   document.getElementById('usePlateBtn').classList.add('hidden');
-  document.getElementById('manualPlateInput').value = '';
-  document.getElementById('manualUseBtn').disabled  = true;
+  document.getElementById('manualPlateInput').value       = '';
+  document.getElementById('manualUseBtn').disabled        = true;
   document.getElementById('manualValidation').textContent = '';
   document.getElementById('manualValidation').className   = 'manual-validation';
   document.getElementById('manualPlateInput').className   = 'manual-always-input';
   document.getElementById('ocrSuggestion').classList.add('hidden');
-
   document.getElementById('cameraOverlay').classList.remove('hidden');
 
-  // Start OCR worker in background immediately
   initOcrWorker();
 
-  const constraints = {
+  navigator.mediaDevices.getUserMedia({
     video: {
-      facingMode:  { ideal: 'environment' },
-      width:       { ideal: 1280 },
-      height:      { ideal: 720 },
-      frameRate:   { ideal: 30 }
+      facingMode: { ideal: 'environment' },
+      width:      { ideal: 1280 },
+      height:     { ideal: 720 },
+      frameRate:  { ideal: 30 }
     }
-  };
-
-  navigator.mediaDevices.getUserMedia(constraints)
-    .then(stream => {
-      cameraStream = stream;
-      const video  = document.getElementById('cameraFeed');
-      video.srcObject = stream;
-      video.play().then(() => {
-        // Start continuous scan after video is playing
-        startAutoScan();
-      });
-    })
-    .catch(err => {
-      setOcrStrip('CAMERA ERROR', 'Permission denied or not available', false);
-      document.getElementById('camLiveBadge').style.display = 'none';
-      showToast('Camera unavailable — use manual entry', 'error');
-    });
+  })
+  .then(stream => {
+    cameraStream = stream;
+    const video  = document.getElementById('cameraFeed');
+    video.srcObject = stream;
+    video.play().then(() => startAutoScan());
+  })
+  .catch(() => {
+    setOcrStrip('CAMERA ERROR', 'Permission denied or not available', false);
+    document.getElementById('camLiveBadge').style.display = 'none';
+    showToast('Camera unavailable — use manual entry', 'error');
+  });
 }
 
 function closeCamera() {
@@ -991,18 +1007,13 @@ function closeCamera() {
   lastDetected = null;
 }
 
-/* ── CONTINUOUS AUTO-SCAN ────────────────── */
 function startAutoScan() {
-  stopAutoScan();   // clear any existing
+  stopAutoScan();
   setOcrStrip('—', 'Scanning…', false);
   setBadgeScanning(true);
-
-  // Scan every 1.8 seconds
   scanInterval = setInterval(() => {
     if (!scanCooldown) runOcrScan();
   }, 1800);
-
-  // Run first scan immediately
   setTimeout(runOcrScan, 600);
 }
 
@@ -1024,71 +1035,54 @@ async function runOcrScan() {
     canvas.height = video.videoHeight || 480;
     const ctx     = canvas.getContext('2d');
 
-    // Draw frame
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // ── PREPROCESSING ─────────────────────────
-    // 1. Convert to greyscale
+    // ── PREPROCESSING ─────────────────────
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data      = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const grey    = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-      data[i]       = grey;
-      data[i+1]     = grey;
-      data[i+2]     = grey;
-    }
+    const factor    = (259 * (80 + 255)) / (255 * (259 - 80));
 
-    // 2. Increase contrast
-    const contrast  = 60;
-    const factor    = (259 * (contrast + 255)) / (255 * (259 - contrast));
     for (let i = 0; i < data.length; i += 4) {
-      data[i]   = Math.min(255, Math.max(0, factor * (data[i]   - 128) + 128));
-      data[i+1] = Math.min(255, Math.max(0, factor * (data[i+1] - 128) + 128));
-      data[i+2] = Math.min(255, Math.max(0, factor * (data[i+2] - 128) + 128));
+      const grey = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+      const val  = Math.min(255, Math.max(0, factor * (grey - 128) + 128));
+      data[i] = data[i+1] = data[i+2] = val;
     }
     ctx.putImageData(imageData, 0, 0);
 
-    // ── OCR ───────────────────────────────────
+    // ── OCR ───────────────────────────────
     await initOcrWorker();
     const result  = await ocrWorker.recognize(canvas);
-    const raw     = result.data.text.replace(/\s+/g, '').toUpperCase();
-    const match   = raw.match(PLATE_REGEX);
+    const rawFull = result.data.text;
     const conf    = Math.round(result.data.confidence);
+    const plate   = extractBestPlate(rawFull);
 
-    if (match) {
-      const plate = match[0];
-      lastDetected = plate;
+    if (plate) {
+      lastDetected  = plate;
       capturedPlate = plate;
 
       setOcrStrip(plate, `Confidence ${conf}%`, true);
       document.getElementById('ocrStrip').style.borderColor = 'var(--green)';
       document.getElementById('ocrSuggestion').classList.add('hidden');
-
-      // Show USE THIS PLATE button
       document.getElementById('usePlateBtn').classList.remove('hidden');
 
-      // Auto-copy to manual input if it's empty
       const manualInput = document.getElementById('manualPlateInput');
       if (!manualInput.value) {
         manualInput.value = plate;
         validateManualInput(manualInput);
       }
 
-      // Pause scanning after successful detection
       stopAutoScan();
       setBadgeScanning(false);
       showToast(`Plate detected: ${plate}`, 'success');
 
     } else {
-      // No full plate match — show partial if any letters found
-      setOcrStrip('NO PLATE DETECTED', `Conf ${conf}% — keep camera steady`, false);
+      const cleaned = cleanOcrText(rawFull);
+      setOcrStrip('NO PLATE DETECTED', `Conf ${conf}% — hold steady`, false);
       document.getElementById('ocrStrip').style.borderColor = 'var(--border)';
       document.getElementById('usePlateBtn').classList.add('hidden');
 
-      // Show partial OCR suggestion if we got at least 4 chars
-      const partial = raw.replace(/[^A-Z0-9]/g, '');
-      if (partial.length >= 4) {
-        document.getElementById('suggestionBtn').textContent = partial.slice(0, 10);
+      if (cleaned.length >= 4) {
+        document.getElementById('suggestionBtn').textContent = cleaned.slice(0, 10);
         document.getElementById('ocrSuggestion').classList.remove('hidden');
       } else {
         document.getElementById('ocrSuggestion').classList.add('hidden');
@@ -1101,92 +1095,6 @@ async function runOcrScan() {
     scanCooldown = false;
   }
 }
-
-/* ── UI HELPERS ──────────────────────────── */
-function setOcrStrip(plate, status, detected) {
-  const plateEl = document.getElementById('ocrPlate');
-  const statEl  = document.getElementById('ocrStatus');
-
-  plateEl.textContent = plate;
-  statEl.textContent  = status;
-
-  plateEl.className = 'ocr-strip-plate' +
-    (detected ? ' detected' : plate === '—' ? '' : ' no-detect');
-}
-
-function setBadgeScanning(active) {
-  const badge = document.getElementById('camLiveBadge');
-  if (!badge) return;
-  badge.className = 'cam-live-badge' + (active ? ' scanning' : '');
-  badge.innerHTML = active
-    ? '<span class="cam-live-dot"></span> SCANNING'
-    : '<span class="cam-live-dot"></span> LIVE';
-}
-
-function useCapturedPlate() {
-  if (!capturedPlate) return;
-  fillPlateField(capturedPlate);
-  closeCamera();
-}
-
-function useOcrSuggestion() {
-  const val = document.getElementById('suggestionBtn').textContent;
-  const input = document.getElementById('manualPlateInput');
-  input.value = val;
-  validateManualInput(input);
-  input.focus();
-}
-
-/* ── MANUAL ENTRY (always visible) ──────── */
-function validateManualInput(input) {
-  const val      = input.value.trim().toUpperCase();
-  const validEl  = document.getElementById('manualValidation');
-  const useBtn   = document.getElementById('manualUseBtn');
-
-  if (!val) {
-    input.className    = 'manual-always-input';
-    validEl.textContent = '';
-    validEl.className  = 'manual-validation';
-    useBtn.disabled    = true;
-    return;
-  }
-
-  if (PLATE_REGEX.test(val)) {
-    input.className    = 'manual-always-input valid';
-    validEl.textContent = '✓ Valid plate format';
-    validEl.className  = 'manual-validation ok';
-    useBtn.disabled    = false;
-  } else if (val.length >= 10) {
-    input.className    = 'manual-always-input invalid';
-    validEl.textContent = '✗ Format: AA00AA0000';
-    validEl.className  = 'manual-validation err';
-    useBtn.disabled    = true;
-  } else {
-    input.className    = 'manual-always-input';
-    validEl.textContent = `${val.length}/10 characters`;
-    validEl.className  = 'manual-validation';
-    useBtn.disabled    = true;
-  }
-}
-
-function submitManualPlate() {
-  const val   = document.getElementById('manualPlateInput').value.trim().toUpperCase();
-  if (!val || !PLATE_REGEX.test(val)) {
-    showToast('Invalid format: AA00AA0000', 'error');
-    return;
-  }
-  fillPlateField(val);
-  closeCamera();
-}
-
-function fillPlateField(plate) {
-  if (cameraMode === 'park')      document.getElementById('parkPlate').value      = plate;
-  else if (cameraMode === 'exit') document.getElementById('exitIdentifier').value = plate;
-  showToast(`Plate set: ${plate}`, 'success');
-}
-
-// Keep old toggle function so nothing breaks (no-op now)
-function toggleManualEntry() {}
 
 /* ══════════════════════════════════════════════════════════
    RESET
