@@ -1407,3 +1407,27 @@
   }
   .camera-modal-v2 { max-width: 100%; }
 }
+
+/* ── CROP ZONE INDICATOR — Stage 2.2 ──── */
+.crop-zone {
+  position: absolute;
+  left:   10%;
+  top:    25%;
+  width:  80%;
+  height: 50%;
+  border: 2px dashed rgba(240,192,64,0.5);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.crop-zone::before {
+  content: 'AIM PLATE HERE';
+  position: absolute;
+  top: -18px; left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-display);
+  font-size: 0.48rem;
+  letter-spacing: 0.1em;
+  color: rgba(240,192,64,0.6);
+  white-space: nowrap;
+}
