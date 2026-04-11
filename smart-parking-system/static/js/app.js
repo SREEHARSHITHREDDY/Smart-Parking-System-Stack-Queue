@@ -526,12 +526,15 @@ function buildSlotCell(slotId, occupied, slotData) {
   const cell = document.createElement('div');
   cell.className = 'slot-cell' + (occupied ? ' occupied' : '');
   cell.title     = occupied
-    ? `${slotId} — ${slotData.vehicle.number_plate} (${slotData.vehicle.vehicle_type})`
-    : `${slotId} — Available`;
+    ? `${slotId} — ${slotData.vehicle.number_plate} — click for details`
+    : `${slotId} — Available — click to park here`;
 
-  const idSpan     = document.createElement('span');
-  idSpan.className    = 'slot-id';
-  idSpan.textContent  = slotId.includes('-') ? slotId.split('-')[1] : slotId; // short ID on cell
+  // Click opens popup
+  cell.onclick = () => openSlotPopup(slotId);
+
+  const idSpan    = document.createElement('span');
+  idSpan.className   = 'slot-id';
+  idSpan.textContent = slotId.includes('-') ? slotId.split('-')[1] : slotId;
 
   const plateSpan    = document.createElement('span');
   plateSpan.className   = 'slot-plate';
@@ -1046,6 +1049,102 @@ async function confirmReset() {
       showToast('System reset', 'info');
     }
   } catch (e) { showToast('Reset failed', 'error'); }
+}
+/* ══════════════════════════════════════════════════════════
+   SLOT CLICK POPUP
+══════════════════════════════════════════════════════════ */
+let popupSlotId      = null;
+let popupVehicle     = null;
+let durationInterval = null;
+const RATES = { car: 30, bike: 15, truck: 60 };
+
+function openSlotPopup(slotId) {
+  const slotData = latestLayout[slotId];
+  const occupied = slotData && slotData.status === 'occupied';
+  popupSlotId  = slotId;
+  popupVehicle = occupied ? slotData.vehicle : null;
+
+  // Show correct panel
+  document.getElementById('popupOccupied').style.display = occupied ? 'block' : 'none';
+  document.getElementById('popupEmpty').style.display    = occupied ? 'none'  : 'block';
+
+  if (occupied) {
+    const v = slotData.vehicle;
+
+    // Short slot ID for display (strip floor prefix)
+    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+    document.getElementById('popupSlotId').textContent = displayId;
+    document.getElementById('popupPlate').textContent  = v.number_plate;
+    document.getElementById('popupType').textContent   = v.vehicle_type.toUpperCase();
+    document.getElementById('popupTicket').textContent = v.ticket_id;
+
+    // Entry time
+    const entryStr = v.entry_time.includes('T')
+      ? v.entry_time.split('T')[1].slice(0, 8)
+      : v.entry_time;
+    document.getElementById('popupEntry').textContent = entryStr;
+
+    // Live duration + fee ticker
+    if (durationInterval) clearInterval(durationInterval);
+    function updateDuration() {
+      const entryDate = new Date(v.entry_time);
+      const now       = new Date();
+      let   diffMins  = Math.floor((now - entryDate) / 60000);
+      if (diffMins < 0) diffMins = 0;
+
+      const hrs    = Math.floor(diffMins / 60);
+      const mins   = diffMins % 60;
+      const durStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+      document.getElementById('popupDuration').textContent = durStr;
+
+      // Estimated fee
+      const rate       = RATES[v.vehicle_type] || 30;
+      const billHours  = Math.max(1, Math.ceil(diffMins / 60));
+      const estFee     = billHours * rate;
+      document.getElementById('popupFee').textContent = `₹${estFee}`;
+    }
+    updateDuration();
+    durationInterval = setInterval(updateDuration, 30000);
+
+  } else {
+    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+    document.getElementById('popupEmptySlotId').textContent = displayId;
+  }
+
+  document.getElementById('slotPopupOverlay').classList.remove('hidden');
+}
+
+function closeSlotPopup(event) {
+  // Close on overlay click (but not modal click)
+  if (event && event.target !== document.getElementById('slotPopupOverlay')) return;
+  if (durationInterval) { clearInterval(durationInterval); durationInterval = null; }
+  document.getElementById('slotPopupOverlay').classList.add('hidden');
+  popupSlotId  = null;
+  popupVehicle = null;
+}
+
+function quickExit() {
+  if (!popupVehicle) return;
+  // Pre-fill exit form with plate number
+  document.getElementById('exitIdentifier').value = popupVehicle.number_plate;
+  closeSlotPopup();
+  showToast(`Ready to exit ${popupVehicle.number_plate}`, 'info');
+  // Scroll to exit panel
+  document.getElementById('exitIdentifier').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('exitIdentifier').focus();
+}
+
+function quickPark() {
+  if (!popupSlotId) return;
+  // Switch to manual mode with this slot pre-selected
+  chosenSlot = popupSlotId;
+  document.getElementById('chosenSlotValue').textContent = popupSlotId;
+  document.getElementById('chosenSlotDisplay').classList.remove('hidden');
+  setAssignModeQuiet('manual');
+  closeSlotPopup();
+  showToast(`Slot ${popupSlotId} pre-selected`, 'info');
+  document.getElementById('parkPlate').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('parkPlate').focus();
 }
 
 /* ══════════════════════════════════════════════════════════

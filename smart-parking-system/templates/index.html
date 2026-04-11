@@ -331,6 +331,75 @@
     </section>
   </main>
 </div>
+<!-- ══════════════════════ SLOT DETAIL POPUP ══════════════════════ -->
+<div id="slotPopupOverlay" class="overlay hidden" onclick="closeSlotPopup(event)">
+  <div class="modal slot-popup-modal" onclick="event.stopPropagation()">
+
+    <!-- OCCUPIED STATE -->
+    <div id="popupOccupied">
+      <div class="popup-header occupied-header">
+        <div class="popup-slot-badge" id="popupSlotId">A1</div>
+        <div class="popup-status-tag occupied-tag">🔴 OCCUPIED</div>
+        <button class="popup-close" onclick="closeSlotPopup()">✕</button>
+      </div>
+      <div class="popup-body">
+        <div class="popup-row">
+          <span class="popup-label">VEHICLE NUMBER</span>
+          <span class="popup-value plate-value" id="popupPlate">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">VEHICLE TYPE</span>
+          <span class="popup-value" id="popupType">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">TICKET ID</span>
+          <span class="popup-value mono-value" id="popupTicket">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">ENTRY TIME</span>
+          <span class="popup-value" id="popupEntry">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">DURATION SO FAR</span>
+          <span class="popup-value live-duration" id="popupDuration">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">ESTIMATED FEE</span>
+          <span class="popup-value fee-value" id="popupFee">—</span>
+        </div>
+      </div>
+      <div class="popup-footer">
+        <button class="btn-danger full" onclick="quickExit()">
+          🚪 PROCESS EXIT FOR THIS VEHICLE
+        </button>
+      </div>
+    </div>
+
+    <!-- EMPTY STATE -->
+    <div id="popupEmpty">
+      <div class="popup-header empty-header">
+        <div class="popup-slot-badge empty-badge" id="popupEmptySlotId">A1</div>
+        <div class="popup-status-tag empty-tag">🟢 AVAILABLE</div>
+        <button class="popup-close" onclick="closeSlotPopup()">✕</button>
+      </div>
+      <div class="popup-body">
+        <div class="popup-empty-msg">
+          <div class="popup-empty-icon">🅿</div>
+          <div class="popup-empty-text">This slot is available</div>
+          <div class="popup-empty-sub">Click below to park a vehicle here directly</div>
+        </div>
+      </div>
+      <div class="popup-footer">
+        <button class="btn-primary full" onclick="quickPark()">
+          🚗 PARK A VEHICLE IN THIS SLOT
+        </button>
+        <div style="height:8px"></div>
+        <button class="btn-secondary full" onclick="closeSlotPopup()">CLOSE</button>
+      </div>
+    </div>
+
+  </div>
+</div>
 
 <!-- TOAST -->
 <div id="toast" class="toast hidden"></div>
