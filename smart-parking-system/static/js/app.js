@@ -909,105 +909,272 @@ function closeReceipt() { document.getElementById('receiptOverlay').classList.ad
 function printReceipt() { window.print(); }
 
 /* ══════════════════════════════════════════════════════════
-   CAMERA
+   CAMERA — Stage 2.1
+   Auto-scan, side-by-side, tuned Tesseract for MacBook + Indian plates
 ══════════════════════════════════════════════════════════ */
-function openCamera(mode) {
-  cameraMode    = mode;
-  capturedPlate = null;
 
-  document.getElementById('ocrPlate').textContent  = '—';
-  document.getElementById('ocrStatus').textContent = '';
-  document.getElementById('usePlateBtn').classList.add('hidden');
-  document.getElementById('captureBtn').classList.remove('hidden');
-  document.getElementById('manualEntryBody').classList.remove('open');
-  document.getElementById('manualToggle').classList.remove('open');
-  document.getElementById('manualPlateInput').value = '';
-  document.getElementById('cameraOverlay').classList.remove('hidden');
+let scanInterval    = null;   // continuous scan loop
+let lastDetected    = null;   // last successfully detected plate
+let scanCooldown    = false;  // prevent overlapping scans
+const PLATE_REGEX   = /[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/;
 
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: {ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
-  })
-  .then(stream => {
-    cameraStream = stream;
-    const video  = document.getElementById('cameraFeed');
-    video.srcObject = stream;
-    video.play();
-  })
-  .catch(() => {
-    document.getElementById('ocrStatus').textContent = '⚠ Camera access denied. Use manual entry below.';
-    document.getElementById('manualEntryBody').classList.add('open');
-    document.getElementById('manualToggle').classList.add('open');
+// Tesseract worker (reused across scans)
+let ocrWorker = null;
+
+async function initOcrWorker() {
+  if (ocrWorker) return;
+  ocrWorker = await Tesseract.createWorker('eng', 1, {
+    logger: () => {}   // silence internal logs
+  });
+  await ocrWorker.setParameters({
+    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+    tessedit_pageseg_mode:   '7',   // PSM 7 — single text line
+    tessedit_ocr_engine_mode:'1',   // OEM 1 — LSTM only
   });
 }
 
-function closeCamera() {
-  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
-  document.getElementById('cameraFeed').srcObject = null;
-  document.getElementById('cameraOverlay').classList.add('hidden');
+function openCamera(mode) {
+  cameraMode    = mode;
+  capturedPlate = null;
+  lastDetected  = null;
+
+  // Reset UI
+  setOcrStrip('—', 'Starting camera…', false);
+  document.getElementById('usePlateBtn').classList.add('hidden');
+  document.getElementById('manualPlateInput').value = '';
+  document.getElementById('manualUseBtn').disabled  = true;
+  document.getElementById('manualValidation').textContent = '';
+  document.getElementById('manualValidation').className   = 'manual-validation';
+  document.getElementById('manualPlateInput').className   = 'manual-always-input';
+  document.getElementById('ocrSuggestion').classList.add('hidden');
+
+  document.getElementById('cameraOverlay').classList.remove('hidden');
+
+  // Start OCR worker in background immediately
+  initOcrWorker();
+
+  const constraints = {
+    video: {
+      facingMode:  { ideal: 'environment' },
+      width:       { ideal: 1280 },
+      height:      { ideal: 720 },
+      frameRate:   { ideal: 30 }
+    }
+  };
+
+  navigator.mediaDevices.getUserMedia(constraints)
+    .then(stream => {
+      cameraStream = stream;
+      const video  = document.getElementById('cameraFeed');
+      video.srcObject = stream;
+      video.play().then(() => {
+        // Start continuous scan after video is playing
+        startAutoScan();
+      });
+    })
+    .catch(err => {
+      setOcrStrip('CAMERA ERROR', 'Permission denied or not available', false);
+      document.getElementById('camLiveBadge').style.display = 'none';
+      showToast('Camera unavailable — use manual entry', 'error');
+    });
 }
 
-async function captureFrame() {
-  const video  = document.getElementById('cameraFeed');
-  const canvas = document.getElementById('cameraCanvas');
+function closeCamera() {
+  stopAutoScan();
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  const video = document.getElementById('cameraFeed');
+  if (video) video.srcObject = null;
+  document.getElementById('cameraOverlay').classList.add('hidden');
+  lastDetected = null;
+}
 
-  if (!video.srcObject) {
-    document.getElementById('ocrStatus').textContent = 'Camera not active. Use manual entry.';
+/* ── CONTINUOUS AUTO-SCAN ────────────────── */
+function startAutoScan() {
+  stopAutoScan();   // clear any existing
+  setOcrStrip('—', 'Scanning…', false);
+  setBadgeScanning(true);
+
+  // Scan every 1.8 seconds
+  scanInterval = setInterval(() => {
+    if (!scanCooldown) runOcrScan();
+  }, 1800);
+
+  // Run first scan immediately
+  setTimeout(runOcrScan, 600);
+}
+
+function stopAutoScan() {
+  if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+  setBadgeScanning(false);
+}
+
+async function runOcrScan() {
+  const video = document.getElementById('cameraFeed');
+  if (!video || !video.srcObject || video.readyState < 2) return;
+  if (scanCooldown) return;
+
+  scanCooldown = true;
+
+  try {
+    const canvas = document.getElementById('cameraCanvas');
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx     = canvas.getContext('2d');
+
+    // Draw frame
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // ── PREPROCESSING ─────────────────────────
+    // 1. Convert to greyscale
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data      = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const grey    = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+      data[i]       = grey;
+      data[i+1]     = grey;
+      data[i+2]     = grey;
+    }
+
+    // 2. Increase contrast
+    const contrast  = 60;
+    const factor    = (259 * (contrast + 255)) / (255 * (259 - contrast));
+    for (let i = 0; i < data.length; i += 4) {
+      data[i]   = Math.min(255, Math.max(0, factor * (data[i]   - 128) + 128));
+      data[i+1] = Math.min(255, Math.max(0, factor * (data[i+1] - 128) + 128));
+      data[i+2] = Math.min(255, Math.max(0, factor * (data[i+2] - 128) + 128));
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // ── OCR ───────────────────────────────────
+    await initOcrWorker();
+    const result  = await ocrWorker.recognize(canvas);
+    const raw     = result.data.text.replace(/\s+/g, '').toUpperCase();
+    const match   = raw.match(PLATE_REGEX);
+    const conf    = Math.round(result.data.confidence);
+
+    if (match) {
+      const plate = match[0];
+      lastDetected = plate;
+      capturedPlate = plate;
+
+      setOcrStrip(plate, `Confidence ${conf}%`, true);
+      document.getElementById('ocrStrip').style.borderColor = 'var(--green)';
+      document.getElementById('ocrSuggestion').classList.add('hidden');
+
+      // Show USE THIS PLATE button
+      document.getElementById('usePlateBtn').classList.remove('hidden');
+
+      // Auto-copy to manual input if it's empty
+      const manualInput = document.getElementById('manualPlateInput');
+      if (!manualInput.value) {
+        manualInput.value = plate;
+        validateManualInput(manualInput);
+      }
+
+      // Pause scanning after successful detection
+      stopAutoScan();
+      setBadgeScanning(false);
+      showToast(`Plate detected: ${plate}`, 'success');
+
+    } else {
+      // No full plate match — show partial if any letters found
+      setOcrStrip('NO PLATE DETECTED', `Conf ${conf}% — keep camera steady`, false);
+      document.getElementById('ocrStrip').style.borderColor = 'var(--border)';
+      document.getElementById('usePlateBtn').classList.add('hidden');
+
+      // Show partial OCR suggestion if we got at least 4 chars
+      const partial = raw.replace(/[^A-Z0-9]/g, '');
+      if (partial.length >= 4) {
+        document.getElementById('suggestionBtn').textContent = partial.slice(0, 10);
+        document.getElementById('ocrSuggestion').classList.remove('hidden');
+      } else {
+        document.getElementById('ocrSuggestion').classList.add('hidden');
+      }
+    }
+
+  } catch (e) {
+    setOcrStrip('SCAN ERROR', 'Retrying…', false);
+  } finally {
+    scanCooldown = false;
+  }
+}
+
+/* ── UI HELPERS ──────────────────────────── */
+function setOcrStrip(plate, status, detected) {
+  const plateEl = document.getElementById('ocrPlate');
+  const statEl  = document.getElementById('ocrStatus');
+
+  plateEl.textContent = plate;
+  statEl.textContent  = status;
+
+  plateEl.className = 'ocr-strip-plate' +
+    (detected ? ' detected' : plate === '—' ? '' : ' no-detect');
+}
+
+function setBadgeScanning(active) {
+  const badge = document.getElementById('camLiveBadge');
+  if (!badge) return;
+  badge.className = 'cam-live-badge' + (active ? ' scanning' : '');
+  badge.innerHTML = active
+    ? '<span class="cam-live-dot"></span> SCANNING'
+    : '<span class="cam-live-dot"></span> LIVE';
+}
+
+function useCapturedPlate() {
+  if (!capturedPlate) return;
+  fillPlateField(capturedPlate);
+  closeCamera();
+}
+
+function useOcrSuggestion() {
+  const val = document.getElementById('suggestionBtn').textContent;
+  const input = document.getElementById('manualPlateInput');
+  input.value = val;
+  validateManualInput(input);
+  input.focus();
+}
+
+/* ── MANUAL ENTRY (always visible) ──────── */
+function validateManualInput(input) {
+  const val      = input.value.trim().toUpperCase();
+  const validEl  = document.getElementById('manualValidation');
+  const useBtn   = document.getElementById('manualUseBtn');
+
+  if (!val) {
+    input.className    = 'manual-always-input';
+    validEl.textContent = '';
+    validEl.className  = 'manual-validation';
+    useBtn.disabled    = true;
     return;
   }
 
-  canvas.width  = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-  document.getElementById('ocrStatus').textContent = 'Scanning…';
-  document.getElementById('ocrPlate').textContent  = '—';
-
-  try {
-    const result = await Tesseract.recognize(canvas, 'eng', {
-      logger: m => {
-        if (m.status === 'recognizing text') {
-          document.getElementById('ocrStatus').textContent =
-            `Scanning… ${Math.round(m.progress * 100)}%`;
-        }
-      }
-    });
-    const raw     = result.data.text.replace(/\s+/g, '').toUpperCase();
-    const matches = raw.match(/[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/);
-    const conf    = Math.round(result.data.confidence);
-
-    if (matches) {
-      capturedPlate = matches[0];
-      document.getElementById('ocrPlate').textContent  = capturedPlate;
-      document.getElementById('ocrStatus').textContent = `Detected · Confidence ${conf}%`;
-      document.getElementById('usePlateBtn').classList.remove('hidden');
-      document.getElementById('captureBtn').classList.add('hidden');
-    } else {
-      document.getElementById('ocrPlate').textContent  = raw.slice(0, 12) || '—';
-      document.getElementById('ocrStatus').textContent =
-        `No valid plate found (conf ${conf}%). Try again or enter manually.`;
-      document.getElementById('manualEntryBody').classList.add('open');
-      document.getElementById('manualToggle').classList.add('open');
-    }
-  } catch (e) {
-    document.getElementById('ocrStatus').textContent = 'OCR error. Please enter manually.';
-    document.getElementById('manualEntryBody').classList.add('open');
-    document.getElementById('manualToggle').classList.add('open');
+  if (PLATE_REGEX.test(val)) {
+    input.className    = 'manual-always-input valid';
+    validEl.textContent = '✓ Valid plate format';
+    validEl.className  = 'manual-validation ok';
+    useBtn.disabled    = false;
+  } else if (val.length >= 10) {
+    input.className    = 'manual-always-input invalid';
+    validEl.textContent = '✗ Format: AA00AA0000';
+    validEl.className  = 'manual-validation err';
+    useBtn.disabled    = true;
+  } else {
+    input.className    = 'manual-always-input';
+    validEl.textContent = `${val.length}/10 characters`;
+    validEl.className  = 'manual-validation';
+    useBtn.disabled    = true;
   }
-}
-
-function useCapturedPlate() { if (capturedPlate) { fillPlateField(capturedPlate); closeCamera(); } }
-
-function toggleManualEntry() {
-  const body   = document.getElementById('manualEntryBody');
-  const toggle = document.getElementById('manualToggle');
-  const open   = body.classList.toggle('open');
-  toggle.classList.toggle('open', open);
 }
 
 function submitManualPlate() {
   const val   = document.getElementById('manualPlateInput').value.trim().toUpperCase();
-  const regex = /^[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}$/;
-  if (!val)             { showToast('Enter a plate number', 'error'); return; }
-  if (!regex.test(val)) { showToast('Invalid format: AA00AA0000', 'error'); return; }
+  if (!val || !PLATE_REGEX.test(val)) {
+    showToast('Invalid format: AA00AA0000', 'error');
+    return;
+  }
   fillPlateField(val);
   closeCamera();
 }
@@ -1017,6 +1184,9 @@ function fillPlateField(plate) {
   else if (cameraMode === 'exit') document.getElementById('exitIdentifier').value = plate;
   showToast(`Plate set: ${plate}`, 'success');
 }
+
+// Keep old toggle function so nothing breaks (no-op now)
+function toggleManualEntry() {}
 
 /* ══════════════════════════════════════════════════════════
    RESET
