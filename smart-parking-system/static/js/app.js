@@ -1,7 +1,8 @@
 /* ═══════════════════════════════════════════════════════════
-   SMART PARKING SYSTEM — app.js  v4
+   SMART PARKING SYSTEM — app.js  v5  (Phase 2 Complete)
    Author: C. Sree Harshith Reddy
-   Includes: single floor, multi-floor, slot picker
+   Includes: single floor · multi-floor · slot picker ·
+             camera OCR v2 (auto-scan, preprocessing, all helpers)
 ═══════════════════════════════════════════════════════════ */
 
 /* ── STATE ───────────────────────────────────────────────── */
@@ -16,9 +17,9 @@ let latestLayout    = {};
 let latestConfig    = [];
 let latestFloorCfg  = null;
 let isMultiFloor    = false;
-let floorMode       = 'single';        // setup modal state
-let activeFloorTab  = null;            // blueprint tab
-let pickerFloorTab  = null;            // picker floor tab
+let floorMode       = 'single';
+let activeFloorTab  = null;
+let pickerFloorTab  = null;
 
 /* ── INIT ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -56,14 +57,14 @@ function setFloorMode(mode) {
    SINGLE-FLOOR ROW BUILDER
 ══════════════════════════════════════════════════════════ */
 function addRow(builderId, btnLabel) {
-  const bId    = builderId || 'rowBuilder';
+  const bId     = builderId || 'rowBuilder';
   const builder = document.getElementById(bId);
   const rowCount = builder.children.length;
   if (rowCount >= 26) { showToast('Maximum 26 rows allowed', 'error'); return; }
 
   const rowLetter = String.fromCharCode(65 + rowCount);
   const div = document.createElement('div');
-  div.className  = 'row-item';
+  div.className   = 'row-item';
   div.dataset.row = rowLetter;
   div.innerHTML = `
     <span class="row-label">ROW ${rowLetter}</span>
@@ -121,7 +122,7 @@ function addFloor() {
   floorCount++;
   const fid  = `floor_${floorCount}`;
   const card = document.createElement('div');
-  card.className  = 'floor-card';
+  card.className   = 'floor-card';
   card.dataset.fid = fid;
 
   const defaultNames = ['Ground', '1st Floor', '2nd Floor', '3rd Floor', 'Basement',
@@ -142,7 +143,7 @@ function addFloor() {
     </div>
   `;
   builder.appendChild(card);
-  addFloorRow(fid);   // start with one row
+  addFloorRow(fid);
   renumberFloorCards();
   updatePreview();
 }
@@ -156,7 +157,7 @@ function addFloorRow(fid) {
 
   const letter = String.fromCharCode(65 + rowCount);
   const div    = document.createElement('div');
-  div.className  = 'floor-row-item row-item';
+  div.className   = 'floor-row-item row-item';
   div.dataset.row = letter;
   div.innerHTML = `
     <span class="row-label">ROW ${letter}</span>
@@ -196,19 +197,19 @@ function renumberFloorCards() {
 }
 
 function getFloorConfig() {
-  const cards = document.querySelectorAll('.floor-card');
+  const cards  = document.querySelectorAll('.floor-card');
   const result = [];
   cards.forEach(card => {
-    const fid   = card.dataset.fid;
-    const name  = card.querySelector('.floor-name-input').value.trim() || `Floor ${result.length + 1}`;
-    const rows  = getRowConfigFromBuilder(`rows_${fid}`);
+    const fid  = card.dataset.fid;
+    const name = card.querySelector('.floor-name-input').value.trim() || `Floor ${result.length + 1}`;
+    const rows = getRowConfigFromBuilder(`rows_${fid}`);
     result.push({ name, rows });
   });
   return result;
 }
 
 /* ══════════════════════════════════════════════════════════
-   PREVIEW (works for both modes)
+   PREVIEW (single + multi floor)
 ══════════════════════════════════════════════════════════ */
 function updatePreview() {
   const grid  = document.getElementById('previewGrid');
@@ -237,7 +238,6 @@ function updatePreview() {
     const floors = getFloorConfig();
     let   total  = 0;
     floors.forEach(floor => {
-      // Floor label
       const floorLabel = document.createElement('div');
       floorLabel.style.cssText = `font-family:var(--font-display);font-size:0.58rem;color:var(--gold);margin:6px 0 4px;letter-spacing:0.08em;`;
       floorLabel.textContent   = `▸ ${floor.name}`;
@@ -287,7 +287,7 @@ async function submitSetup() {
 
   try {
     const res  = await fetch('/api/setup', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     });
     const data = await res.json();
@@ -340,23 +340,19 @@ function applyStatus(data) {
   latestFloorCfg = data.floor_config;
   isMultiFloor   = data.multi_floor || false;
 
-  // Header stats
   document.getElementById('hstatCapacity').querySelector('.hstat-val').textContent = stats.capacity;
   document.getElementById('hstatOccupied').querySelector('.hstat-val').textContent = stats.occupied;
   document.getElementById('hstatEmpty').querySelector('.hstat-val').textContent    = stats.empty;
   document.getElementById('hstatQueue').querySelector('.hstat-val').textContent    = stats.queue_length;
 
-  // Occupancy bar
   const pct  = stats.occupancy_pct;
   const fill = document.getElementById('occBarFill');
   fill.style.width = pct + '%';
   fill.className   = 'occ-bar-fill' + (pct >= 85 ? ' full' : pct >= 60 ? ' warn' : '');
   document.getElementById('occBarLabel').textContent = Math.round(pct) + '% OCCUPIED';
 
-  // Revenue
   document.getElementById('revenueAmount').textContent = '₹' + data.revenue.toFixed(0);
 
-  // Multi-floor UI updates
   if (isMultiFloor && latestFloorCfg) {
     setupFloorTabs(latestFloorCfg, data.floor_stats);
     setupFloorPrefSelect(latestFloorCfg);
@@ -368,16 +364,13 @@ function applyStatus(data) {
     document.getElementById('floorPrefGroup').classList.add('hidden');
   }
 
-  // Blueprint
   renderBlueprint(data.row_config, data.layout, data.floor_config);
   renderQueue(data.queue);
 
-  // Refresh picker if open
   if (!document.getElementById('slotPickerOverlay').classList.contains('hidden')) {
     renderSlotPickerForFloor(pickerFloorTab);
   }
 
-  // Invalidate chosen slot if taken
   if (chosenSlot && latestLayout[chosenSlot] && latestLayout[chosenSlot].status === 'occupied') {
     clearChosenSlot();
     showToast(`Slot ${chosenSlot} was just taken — please choose again`, 'error');
@@ -391,12 +384,10 @@ function setupFloorTabs(floorCfg, floorStats) {
   const tabBar = document.getElementById('floorTabs');
   tabBar.classList.remove('hidden');
 
-  // Only rebuild if floor count changed
   const existing = tabBar.querySelectorAll('.floor-tab');
   if (existing.length === floorCfg.length) {
-    // Just update occupancy text
     floorCfg.forEach((fl, i) => {
-      const fs = floorStats ? floorStats[i] : null;
+      const fs  = floorStats ? floorStats[i] : null;
       const occ = existing[i].querySelector('.tab-occ');
       if (occ && fs) occ.textContent = `${fs.occupied}/${fs.capacity}`;
     });
@@ -407,10 +398,10 @@ function setupFloorTabs(floorCfg, floorStats) {
   floorCfg.forEach((fl, i) => {
     const fs  = floorStats ? floorStats[i] : null;
     const tab = document.createElement('button');
-    tab.className   = 'floor-tab' + (i === 0 ? ' active' : '');
+    tab.className     = 'floor-tab' + (i === 0 ? ' active' : '');
     tab.dataset.floor = fl.name;
-    tab.innerHTML   = `${fl.name}<span class="tab-occ">${fs ? `${fs.occupied}/${fs.capacity}` : ''}</span>`;
-    tab.onclick     = () => switchFloorTab(fl.name);
+    tab.innerHTML     = `${fl.name}<span class="tab-occ">${fs ? `${fs.occupied}/${fs.capacity}` : ''}</span>`;
+    tab.onclick       = () => switchFloorTab(fl.name);
     tabBar.appendChild(tab);
   });
 
@@ -455,12 +446,12 @@ function updateFloorSummary(floorStats) {
 ══════════════════════════════════════════════════════════ */
 function setupFloorPrefSelect(floorCfg) {
   const sel = document.getElementById('floorPrefSelect');
-  if (sel.options.length === floorCfg.length + 1) return; // already built
+  if (sel.options.length === floorCfg.length + 1) return;
 
   sel.innerHTML = '<option value="">Any floor (auto-assign)</option>';
   floorCfg.forEach(fl => {
-    const opt    = document.createElement('option');
-    opt.value    = fl.name;
+    const opt       = document.createElement('option');
+    opt.value       = fl.name;
     opt.textContent = fl.name;
     sel.appendChild(opt);
   });
@@ -492,15 +483,12 @@ function renderBlueprint(rowConfig, layout, floorCfg) {
         const slotId   = `${targetFloor}-${letter}${ci + 1}`;
         const slotData = layout[slotId];
         const occupied = slotData && slotData.status === 'occupied';
-
-        const cell = buildSlotCell(slotId, occupied, slotData);
-        row.appendChild(cell);
+        row.appendChild(buildSlotCell(slotId, occupied, slotData));
       }
       grid.appendChild(row);
     });
 
   } else {
-    // Single floor
     rowConfig.forEach((slotCount, ri) => {
       const letter = String.fromCharCode(65 + ri);
       const row    = document.createElement('div');
@@ -529,14 +517,13 @@ function buildSlotCell(slotId, occupied, slotData) {
     ? `${slotId} — ${slotData.vehicle.number_plate} — click for details`
     : `${slotId} — Available — click to park here`;
 
-  // Click opens popup
   cell.onclick = () => openSlotPopup(slotId);
 
-  const idSpan    = document.createElement('span');
+  const idSpan       = document.createElement('span');
   idSpan.className   = 'slot-id';
   idSpan.textContent = slotId.includes('-') ? slotId.split('-')[1] : slotId;
 
-  const plateSpan    = document.createElement('span');
+  const plateSpan       = document.createElement('span');
   plateSpan.className   = 'slot-plate';
   plateSpan.textContent = occupied ? slotData.vehicle.number_plate : '';
 
@@ -603,17 +590,16 @@ function openSlotPicker() {
   document.getElementById('spiSlot').textContent  = chosenSlot || 'NONE';
   document.getElementById('confirmSlotBtn').disabled = !chosenSlot;
 
-  // Setup picker floor tabs if multi-floor
   const tabsEl = document.getElementById('pickerFloorTabs');
   if (isMultiFloor && latestFloorCfg) {
     tabsEl.classList.remove('hidden');
     tabsEl.innerHTML = '';
     latestFloorCfg.forEach((fl, i) => {
       const tab = document.createElement('button');
-      tab.className    = 'picker-floor-tab' + (i === 0 ? ' active' : '');
+      tab.className     = 'picker-floor-tab' + (i === 0 ? ' active' : '');
       tab.dataset.floor = fl.name;
-      tab.textContent  = fl.name;
-      tab.onclick      = () => switchPickerFloor(fl.name);
+      tab.textContent   = fl.name;
+      tab.onclick       = () => switchPickerFloor(fl.name);
       tabsEl.appendChild(tab);
     });
     pickerFloorTab = latestFloorCfg[0].name;
@@ -656,7 +642,6 @@ function renderSlotPickerForFloor(floorName) {
       grid.appendChild(row);
     });
   } else {
-    // Single floor
     latestConfig.forEach((slotCount, ri) => {
       const letter = String.fromCharCode(65 + ri);
       const row    = document.createElement('div');
@@ -682,14 +667,13 @@ function buildPickerCell(slotId) {
   const cell = document.createElement('div');
   cell.className = occupied ? 'sp-cell taken' : isChosen ? 'sp-cell selected' : 'sp-cell available';
 
-  // Show short ID (strip floor prefix for display)
   const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
 
-  const idEl    = document.createElement('span');
+  const idEl       = document.createElement('span');
   idEl.className   = 'sp-id';
   idEl.textContent = displayId;
 
-  const plateEl    = document.createElement('span');
+  const plateEl       = document.createElement('span');
   plateEl.className   = 'sp-plate';
   plateEl.textContent = occupied ? slotData.vehicle.number_plate : 'FREE';
 
@@ -734,14 +718,15 @@ function clearChosenSlot() {
    PARK VEHICLE
 ══════════════════════════════════════════════════════════ */
 async function parkVehicle() {
-  const plate  = document.getElementById('parkPlate').value.trim().toUpperCase();
-  const msgEl  = document.getElementById('parkMsg');
+  const plate = document.getElementById('parkPlate').value.trim().toUpperCase();
+  const msgEl = document.getElementById('parkMsg');
   msgEl.textContent = '';
   msgEl.className   = 'form-msg';
 
   if (!plate) { setMsg(msgEl, 'Please enter a vehicle number.', 'error'); return; }
 
-  const plateRegex = /^[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}$/;
+  // Accept all Indian plate formats: AA00AA0000 / AA00A0000 / AA00AAA0000
+  const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
   if (!plateRegex.test(plate)) {
     setMsg(msgEl, 'Invalid format. Use: AA00AA0000 (e.g. TS09AB1234)', 'error');
     return;
@@ -763,7 +748,7 @@ async function parkVehicle() {
 
   try {
     const res  = await fetch('/api/park', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     });
     const data = await res.json();
@@ -809,7 +794,7 @@ async function exitVehicle() {
 
   try {
     const res  = await fetch('/api/exit', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ identifier })
     });
     const data = await res.json();
@@ -870,7 +855,7 @@ function showExitReceipt(data) {
   const exitT    = new Date(`1970-01-01T${data.exit_time}`);
   let   diffMins = Math.round((exitT - entry) / 60000);
   if (diffMins < 0) diffMins += 24 * 60;
-  const durStr   = diffMins < 60 ? `${diffMins} min` : `${Math.floor(diffMins/60)}h ${diffMins%60}m`;
+  const durStr   = diffMins < 60 ? `${diffMins} min` : `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
 
   document.getElementById('receiptBody').innerHTML = `
     <div class="receipt-row">
@@ -908,23 +893,140 @@ function showExitReceipt(data) {
 function closeReceipt() { document.getElementById('receiptOverlay').classList.add('hidden'); }
 function printReceipt() { window.print(); }
 
-/* ── STATE ─ (keep everything above this unchanged) ── */
+/* ══════════════════════════════════════════════════════════
+   RESET
+══════════════════════════════════════════════════════════ */
+async function confirmReset() {
+  const pin = prompt('Enter admin PIN to reset (default: 0000)');
+  if (pin === null) return;
+  if (pin !== '0000') { showToast('Incorrect PIN', 'error'); return; }
+
+  try {
+    const res  = await fetch('/api/reset', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      document.getElementById('app').classList.add('hidden');
+      document.getElementById('setupOverlay').classList.remove('hidden');
+      document.getElementById('rowBuilder').innerHTML   = '';
+      document.getElementById('floorBuilder').innerHTML = '';
+      floorCount     = 0;
+      floorMode      = 'single';
+      activeFloorTab = null;
+      pickerFloorTab = null;
+      isMultiFloor   = false;
+      latestLayout   = {};
+      latestConfig   = [];
+      latestFloorCfg = null;
+      clearChosenSlot();
+      setFloorMode('single');
+      addRow();
+      showToast('System reset', 'info');
+    }
+  } catch (e) { showToast('Reset failed', 'error'); }
+}
 
 /* ══════════════════════════════════════════════════════════
-   CAMERA — Stage 2.1 + Plate Format Fix
-   Auto-scan, side-by-side, all Indian plate formats
+   SLOT CLICK POPUP
+══════════════════════════════════════════════════════════ */
+let popupSlotId      = null;
+let popupVehicle     = null;
+let durationInterval = null;
+const RATES = { car: 30, bike: 15, truck: 60 };
+
+function openSlotPopup(slotId) {
+  const slotData = latestLayout[slotId];
+  const occupied = slotData && slotData.status === 'occupied';
+  popupSlotId  = slotId;
+  popupVehicle = occupied ? slotData.vehicle : null;
+
+  document.getElementById('popupOccupied').style.display = occupied ? 'block' : 'none';
+  document.getElementById('popupEmpty').style.display    = occupied ? 'none'  : 'block';
+
+  if (occupied) {
+    const v = slotData.vehicle;
+    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+    document.getElementById('popupSlotId').textContent = displayId;
+    document.getElementById('popupPlate').textContent  = v.number_plate;
+    document.getElementById('popupType').textContent   = v.vehicle_type.toUpperCase();
+    document.getElementById('popupTicket').textContent = v.ticket_id;
+
+    const entryStr = v.entry_time.includes('T')
+      ? v.entry_time.split('T')[1].slice(0, 8)
+      : v.entry_time;
+    document.getElementById('popupEntry').textContent = entryStr;
+
+    if (durationInterval) clearInterval(durationInterval);
+    function updateDuration() {
+      const entryDate = new Date(v.entry_time);
+      const now       = new Date();
+      let   diffMins  = Math.floor((now - entryDate) / 60000);
+      if (diffMins < 0) diffMins = 0;
+      const hrs    = Math.floor(diffMins / 60);
+      const mins   = diffMins % 60;
+      const durStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+      document.getElementById('popupDuration').textContent = durStr;
+      const rate      = RATES[v.vehicle_type] || 30;
+      const billHours = Math.max(1, Math.ceil(diffMins / 60));
+      document.getElementById('popupFee').textContent = `₹${billHours * rate}`;
+    }
+    updateDuration();
+    durationInterval = setInterval(updateDuration, 30000);
+
+  } else {
+    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+    document.getElementById('popupEmptySlotId').textContent = displayId;
+  }
+
+  document.getElementById('slotPopupOverlay').classList.remove('hidden');
+}
+
+function closeSlotPopup(event) {
+  if (event && event.target !== document.getElementById('slotPopupOverlay')) return;
+  if (durationInterval) { clearInterval(durationInterval); durationInterval = null; }
+  document.getElementById('slotPopupOverlay').classList.add('hidden');
+  popupSlotId  = null;
+  popupVehicle = null;
+}
+
+function quickExit() {
+  if (!popupVehicle) return;
+  document.getElementById('exitIdentifier').value = popupVehicle.number_plate;
+  closeSlotPopup();
+  showToast(`Ready to exit ${popupVehicle.number_plate}`, 'info');
+  document.getElementById('exitIdentifier').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('exitIdentifier').focus();
+}
+
+function quickPark() {
+  if (!popupSlotId) return;
+  chosenSlot = popupSlotId;
+  document.getElementById('chosenSlotValue').textContent = popupSlotId;
+  document.getElementById('chosenSlotDisplay').classList.remove('hidden');
+  setAssignModeQuiet('manual');
+  closeSlotPopup();
+  showToast(`Slot ${popupSlotId} pre-selected`, 'info');
+  document.getElementById('parkPlate').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('parkPlate').focus();
+}
+
+/* ══════════════════════════════════════════════════════════
+   ██████████████████████████████████████████████████████
+   PHASE 2 — CAMERA OCR  (Complete, all helpers defined)
+   ██████████████████████████████████████████████████████
 ══════════════════════════════════════════════════════════ */
 
-let scanInterval    = null;
-let lastDetected    = null;
-let scanCooldown    = false;
+let scanInterval  = null;
+let lastDetected  = null;
+let scanCooldown  = false;
 
-// ── PLATE MATCHING ────────────────────────
-// Matches all Indian formats:
-// TS09AB1234, TN33J1364, MH12ABC1234
+/* ── Plate regex — all Indian formats ──────────────────────
+   TS09AB1234  (new 10-char)
+   TN33J1364   (old 9-char)
+   MH12ABC1234 (3-letter series)
+─────────────────────────────────────────────────────────── */
 const PLATE_REGEX = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}/;
 
-// Noise words printed on Indian plates
 const PLATE_NOISE = ['INDIA', 'IND', 'BHARAT', 'BH', 'HSRP',
                      'INA', 'INIA', 'NDIA', 'INDO'];
 
@@ -942,26 +1044,26 @@ function extractBestPlate(raw) {
   return matches.reduce((a, b) => a.length >= b.length ? a : b);
 }
 
-// Tesseract worker reused across scans
+/* ── Tesseract worker (reused) ──────────────────────────── */
 let ocrWorker = null;
 
 async function initOcrWorker() {
   if (ocrWorker) return;
-  ocrWorker = await Tesseract.createWorker('eng', 1, {
-    logger: () => {}
-  });
+  ocrWorker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
   await ocrWorker.setParameters({
     tessedit_char_whitelist:  'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-    tessedit_pageseg_mode:    '6',   // PSM 6 — block of text (better for multi-line plates)
-    tessedit_ocr_engine_mode: '1',   // OEM 1 — LSTM only
+    tessedit_pageseg_mode:    '6',
+    tessedit_ocr_engine_mode: '1',
   });
 }
 
+/* ── OPEN CAMERA ────────────────────────────────────────── */
 function openCamera(mode) {
   cameraMode    = mode;
   capturedPlate = null;
   lastDetected  = null;
 
+  /* Reset all camera UI */
   setOcrStrip('—', 'Starting camera…', false);
   document.getElementById('usePlateBtn').classList.add('hidden');
   document.getElementById('manualPlateInput').value       = '';
@@ -989,12 +1091,13 @@ function openCamera(mode) {
     video.play().then(() => startAutoScan());
   })
   .catch(() => {
-    setOcrStrip('CAMERA ERROR', 'Permission denied or not available', false);
+    setOcrStrip('CAMERA ERROR', 'Permission denied or unavailable', false);
     document.getElementById('camLiveBadge').style.display = 'none';
-    showToast('Camera unavailable — use manual entry', 'error');
+    showToast('Camera unavailable — use manual entry on the right', 'error');
   });
 }
 
+/* ── CLOSE CAMERA ───────────────────────────────────────── */
 function closeCamera() {
   stopAutoScan();
   if (cameraStream) {
@@ -1007,6 +1110,7 @@ function closeCamera() {
   lastDetected = null;
 }
 
+/* ── AUTO SCAN LOOP ─────────────────────────────────────── */
 function startAutoScan() {
   stopAutoScan();
   setOcrStrip('—', 'Scanning…', false);
@@ -1022,66 +1126,55 @@ function stopAutoScan() {
   setBadgeScanning(false);
 }
 
+/* ── MAIN OCR SCAN ──────────────────────────────────────── */
 async function runOcrScan() {
   const video = document.getElementById('cameraFeed');
   if (!video || !video.srcObject || video.readyState < 2) return;
   if (scanCooldown) return;
-
   scanCooldown = true;
 
   try {
     const vw = video.videoWidth  || 640;
     const vh = video.videoHeight || 480;
 
-    // ── STEP 1: CAPTURE FULL FRAME ────────────────────────
+    /* Capture full frame */
     const fullCanvas = document.getElementById('cameraCanvas');
     fullCanvas.width  = vw;
     fullCanvas.height = vh;
     const fullCtx = fullCanvas.getContext('2d');
     fullCtx.drawImage(video, 0, 0, vw, vh);
 
-    // ── STEP 2: CROP CENTRE REGION ────────────────────────
-    // Plates are typically in the centre 80% width, middle 60% height
+    /* Crop centre zone where plates appear */
     const cropX = Math.floor(vw * 0.10);
     const cropY = Math.floor(vh * 0.25);
     const cropW = Math.floor(vw * 0.80);
     const cropH = Math.floor(vh * 0.50);
 
-    // Create processing canvas — upscale 2x for better OCR
-    const scale     = 2;
+    /* Upscale 2× for better OCR accuracy */
+    const scale      = 2;
     const procCanvas = document.createElement('canvas');
     procCanvas.width  = cropW * scale;
     procCanvas.height = cropH * scale;
     const procCtx = procCanvas.getContext('2d');
+    procCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH,
+                      0, 0, procCanvas.width, procCanvas.height);
 
-    // Draw cropped + upscaled region
-    procCtx.drawImage(
-      fullCanvas,
-      cropX, cropY, cropW, cropH,        // source crop
-      0, 0, procCanvas.width, procCanvas.height  // dest (scaled up)
-    );
-
-    // ── STEP 3: PREPROCESS FOR OCR ────────────────────────
+    /* Preprocess: greyscale + blur + adaptive threshold */
     const processedCanvas = applyPreprocessing(procCanvas);
 
-    // ── STEP 4: OCR ON PROCESSED IMAGE ───────────────────
     await initOcrWorker();
-    const result   = await ocrWorker.recognize(processedCanvas);
-    const rawFull  = result.data.text;
-    const conf     = Math.round(result.data.confidence);
-    let   plate    = extractBestPlate(rawFull);
+    const result  = await ocrWorker.recognize(processedCanvas);
+    const rawFull = result.data.text;
+    const conf    = Math.round(result.data.confidence);
+    let   plate   = extractBestPlate(rawFull);
 
-    // ── STEP 5: TRY INVERTED IF NO MATCH ─────────────────
-    // Handles dark/night plates (white bg → black text already done)
-    // Some plates: black bg + white text — invert helps
+    /* If no match, retry with inverted image (handles white-on-black plates) */
     if (!plate) {
       const invertedCanvas = applyPreprocessing(procCanvas, true);
-      const result2  = await ocrWorker.recognize(invertedCanvas);
-      const rawFull2 = result2.data.text;
-      plate = extractBestPlate(rawFull2);
+      const result2 = await ocrWorker.recognize(invertedCanvas);
+      plate = extractBestPlate(result2.data.text);
     }
 
-    // ── STEP 6: HANDLE RESULT ─────────────────────────────
     if (plate) {
       lastDetected  = plate;
       capturedPlate = plate;
@@ -1091,7 +1184,7 @@ async function runOcrScan() {
       document.getElementById('ocrSuggestion').classList.add('hidden');
       document.getElementById('usePlateBtn').classList.remove('hidden');
 
-      // Auto-fill manual input if empty
+      /* Auto-fill manual input only if it's empty */
       const manualInput = document.getElementById('manualPlateInput');
       if (!manualInput.value) {
         manualInput.value = plate;
@@ -1123,12 +1216,10 @@ async function runOcrScan() {
   }
 }
 
-
 /* ══════════════════════════════════════════════════════════
-   IMAGE PREPROCESSING — Stage 2.2
-   Greyscale → Adaptive threshold → Optional invert
+   IMAGE PREPROCESSING
+   Greyscale → Gaussian blur → Adaptive threshold → (optional invert)
 ══════════════════════════════════════════════════════════ */
-
 function applyPreprocessing(sourceCanvas, invert = false) {
   const w   = sourceCanvas.width;
   const h   = sourceCanvas.height;
@@ -1141,23 +1232,19 @@ function applyPreprocessing(sourceCanvas, invert = false) {
   const imageData = ctx.getImageData(0, 0, w, h);
   const data      = imageData.data;
 
-  // ── 1. GREYSCALE ──────────────────────────
+  /* 1. Greyscale */
   const grey = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) {
-    const r = data[i * 4];
-    const g = data[i * 4 + 1];
-    const b = data[i * 4 + 2];
-    grey[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+    grey[i] = Math.round(0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]);
   }
 
-  // ── 2. GAUSSIAN BLUR (3x3) — reduce noise ─
+  /* 2. Gaussian 3×3 blur to reduce noise */
   const blurred = new Uint8Array(w * h);
-  const kernel  = [1,2,1, 2,4,2, 1,2,1];
+  const kernel  = [1, 2, 1, 2, 4, 2, 1, 2, 1];
   const kSum    = 16;
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
-      let sum = 0;
-      let ki  = 0;
+      let sum = 0, ki = 0;
       for (let ky = -1; ky <= 1; ky++) {
         for (let kx = -1; kx <= 1; kx++) {
           sum += grey[(y + ky) * w + (x + kx)] * kernel[ki++];
@@ -1166,187 +1253,181 @@ function applyPreprocessing(sourceCanvas, invert = false) {
       blurred[y * w + x] = sum / kSum;
     }
   }
-  // Fill edges
   for (let x = 0; x < w; x++) {
-    blurred[x]             = grey[x];
-    blurred[(h-1)*w + x]   = grey[(h-1)*w + x];
+    blurred[x]           = grey[x];
+    blurred[(h-1)*w + x] = grey[(h-1)*w + x];
   }
   for (let y = 0; y < h; y++) {
     blurred[y * w]         = grey[y * w];
     blurred[y * w + w - 1] = grey[y * w + w - 1];
   }
 
-  // ── 3. ADAPTIVE THRESHOLD ─────────────────
-  // For each pixel, compare to local average in a window
-  // Makes text sharp black regardless of lighting
-  const blockSize = Math.max(11, Math.floor(Math.min(w, h) / 20) | 1); // must be odd
-  const C         = 8;   // constant subtracted from mean
+  /* 3. Adaptive threshold — local mean − constant C */
+  const blockSize = Math.max(11, Math.floor(Math.min(w, h) / 20) | 1);
+  const C         = 8;
   const binary    = new Uint8Array(w * h);
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const half = Math.floor(blockSize / 2);
-      let   sum  = 0;
-      let   cnt  = 0;
-
+      let   sum  = 0, cnt = 0;
       for (let ky = Math.max(0, y - half); ky <= Math.min(h - 1, y + half); ky++) {
         for (let kx = Math.max(0, x - half); kx <= Math.min(w - 1, x + half); kx++) {
-          sum += blurred[ky * w + kx];
-          cnt++;
+          sum += blurred[ky * w + kx]; cnt++;
         }
       }
-
-      const mean     = sum / cnt;
-      const pixelVal = blurred[y * w + x];
-      binary[y * w + x] = pixelVal < (mean - C) ? 0 : 255;
+      binary[y * w + x] = blurred[y * w + x] < (sum / cnt - C) ? 0 : 255;
     }
   }
 
-  // ── 4. OPTIONAL INVERT ────────────────────
+  /* 4. Write back (with optional invert) */
   for (let i = 0; i < w * h; i++) {
-    let val = binary[i];
-    if (invert) val = 255 - val;
+    const val       = invert ? 255 - binary[i] : binary[i];
     data[i * 4]     = val;
     data[i * 4 + 1] = val;
     data[i * 4 + 2] = val;
     data[i * 4 + 3] = 255;
   }
-
   ctx.putImageData(imageData, 0, 0);
   return out;
 }
 
 /* ══════════════════════════════════════════════════════════
-   RESET
+   CAMERA UI HELPERS  ← These were missing — now all defined
 ══════════════════════════════════════════════════════════ */
-async function confirmReset() {
-  const pin = prompt('Enter admin PIN to reset (default: 0000)');
-  if (pin === null) return;
-  if (pin !== '0000') { showToast('Incorrect PIN', 'error'); return; }
 
-  try {
-    const res  = await fetch('/api/reset', { method: 'POST' });
-    const data = await res.json();
-    if (data.success) {
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-      document.getElementById('app').classList.add('hidden');
-      document.getElementById('setupOverlay').classList.remove('hidden');
-      document.getElementById('rowBuilder').innerHTML = '';
-      document.getElementById('floorBuilder').innerHTML = '';
-      floorCount   = 0;
-      floorMode    = 'single';
-      activeFloorTab  = null;
-      pickerFloorTab  = null;
-      isMultiFloor    = false;
-      latestLayout    = {};
-      latestConfig    = [];
-      latestFloorCfg  = null;
-      clearChosenSlot();
-      setFloorMode('single');
-      addRow();
-      showToast('System reset', 'info');
-    }
-  } catch (e) { showToast('Reset failed', 'error'); }
+/**
+ * setOcrStrip(plateText, statusText, detected)
+ * Updates the OCR result strip below the camera feed.
+ *  plateText  — text to show in the big plate display (e.g. "TS09AB1234" or "—")
+ *  statusText — small status line (e.g. "Confidence 84%" or "Scanning…")
+ *  detected   — true = green "detected" style, false = dim style
+ */
+function setOcrStrip(plateText, statusText, detected) {
+  const plateEl  = document.getElementById('ocrPlate');
+  const statusEl = document.getElementById('ocrStatus');
+
+  if (plateEl) {
+    plateEl.textContent = plateText;
+    plateEl.className   = 'ocr-strip-plate' + (detected ? ' detected' : plateText === '—' ? '' : ' no-detect');
+  }
+  if (statusEl) {
+    statusEl.textContent = statusText;
+  }
 }
-/* ══════════════════════════════════════════════════════════
-   SLOT CLICK POPUP
-══════════════════════════════════════════════════════════ */
-let popupSlotId      = null;
-let popupVehicle     = null;
-let durationInterval = null;
-const RATES = { car: 30, bike: 15, truck: 60 };
 
-function openSlotPopup(slotId) {
-  const slotData = latestLayout[slotId];
-  const occupied = slotData && slotData.status === 'occupied';
-  popupSlotId  = slotId;
-  popupVehicle = occupied ? slotData.vehicle : null;
-
-  // Show correct panel
-  document.getElementById('popupOccupied').style.display = occupied ? 'block' : 'none';
-  document.getElementById('popupEmpty').style.display    = occupied ? 'none'  : 'block';
-
-  if (occupied) {
-    const v = slotData.vehicle;
-
-    // Short slot ID for display (strip floor prefix)
-    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
-    document.getElementById('popupSlotId').textContent = displayId;
-    document.getElementById('popupPlate').textContent  = v.number_plate;
-    document.getElementById('popupType').textContent   = v.vehicle_type.toUpperCase();
-    document.getElementById('popupTicket').textContent = v.ticket_id;
-
-    // Entry time
-    const entryStr = v.entry_time.includes('T')
-      ? v.entry_time.split('T')[1].slice(0, 8)
-      : v.entry_time;
-    document.getElementById('popupEntry').textContent = entryStr;
-
-    // Live duration + fee ticker
-    if (durationInterval) clearInterval(durationInterval);
-    function updateDuration() {
-      const entryDate = new Date(v.entry_time);
-      const now       = new Date();
-      let   diffMins  = Math.floor((now - entryDate) / 60000);
-      if (diffMins < 0) diffMins = 0;
-
-      const hrs    = Math.floor(diffMins / 60);
-      const mins   = diffMins % 60;
-      const durStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
-      document.getElementById('popupDuration').textContent = durStr;
-
-      // Estimated fee
-      const rate       = RATES[v.vehicle_type] || 30;
-      const billHours  = Math.max(1, Math.ceil(diffMins / 60));
-      const estFee     = billHours * rate;
-      document.getElementById('popupFee').textContent = `₹${estFee}`;
-    }
-    updateDuration();
-    durationInterval = setInterval(updateDuration, 30000);
-
+/**
+ * setBadgeScanning(scanning)
+ * Toggles the LIVE badge between "scanning" (gold pulse) and normal (red pulse).
+ */
+function setBadgeScanning(scanning) {
+  const badge = document.getElementById('camLiveBadge');
+  if (!badge) return;
+  if (scanning) {
+    badge.classList.add('scanning');
+    badge.innerHTML = `<span class="cam-live-dot"></span> SCANNING`;
   } else {
-    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
-    document.getElementById('popupEmptySlotId').textContent = displayId;
+    badge.classList.remove('scanning');
+    badge.innerHTML = `<span class="cam-live-dot"></span> LIVE`;
+  }
+}
+
+/**
+ * useCapturedPlate()
+ * Called when operator clicks "✅ USE THIS PLATE" button.
+ * Fills the correct form input (park or exit) with the captured plate,
+ * then closes the camera modal.
+ */
+function useCapturedPlate() {
+  if (!capturedPlate) return;
+
+  if (cameraMode === 'park') {
+    document.getElementById('parkPlate').value = capturedPlate;
+  } else if (cameraMode === 'exit') {
+    document.getElementById('exitIdentifier').value = capturedPlate;
   }
 
-  document.getElementById('slotPopupOverlay').classList.remove('hidden');
+  closeCamera();
+  showToast(`Plate ${capturedPlate} filled in form`, 'success');
 }
 
-function closeSlotPopup(event) {
-  // Close on overlay click (but not modal click)
-  if (event && event.target !== document.getElementById('slotPopupOverlay')) return;
-  if (durationInterval) { clearInterval(durationInterval); durationInterval = null; }
-  document.getElementById('slotPopupOverlay').classList.add('hidden');
-  popupSlotId  = null;
-  popupVehicle = null;
+/**
+ * validateManualInput(inputEl)
+ * Called oninput on the manual plate input inside the camera modal.
+ * Shows green ✓ / red ✗ feedback and enables/disables the USE button.
+ */
+function validateManualInput(inputEl) {
+  const val        = inputEl.value.toUpperCase().trim();
+  const validEl    = document.getElementById('manualValidation');
+  const useBtn     = document.getElementById('manualUseBtn');
+  const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
+
+  if (!val) {
+    inputEl.className   = 'manual-always-input';
+    validEl.textContent = '';
+    validEl.className   = 'manual-validation';
+    useBtn.disabled     = true;
+    return;
+  }
+
+  if (plateRegex.test(val)) {
+    inputEl.className   = 'manual-always-input valid';
+    validEl.textContent = '✓ Valid plate format';
+    validEl.className   = 'manual-validation ok';
+    useBtn.disabled     = false;
+  } else {
+    inputEl.className   = 'manual-always-input invalid';
+    validEl.textContent = '✗ Format: AA00AA0000';
+    validEl.className   = 'manual-validation err';
+    useBtn.disabled     = true;
+  }
 }
 
-function quickExit() {
-  if (!popupVehicle) return;
-  // Pre-fill exit form with plate number
-  document.getElementById('exitIdentifier').value = popupVehicle.number_plate;
-  closeSlotPopup();
-  showToast(`Ready to exit ${popupVehicle.number_plate}`, 'info');
-  // Scroll to exit panel
-  document.getElementById('exitIdentifier').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  document.getElementById('exitIdentifier').focus();
+/**
+ * submitManualPlate()
+ * Called when operator clicks "USE THIS NUMBER" inside the camera modal.
+ * Validates, fills the target form input, and closes the camera.
+ */
+function submitManualPlate() {
+  const val        = document.getElementById('manualPlateInput').value.toUpperCase().trim();
+  const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
+
+  if (!val || !plateRegex.test(val)) {
+    showToast('Please enter a valid plate number first', 'error');
+    return;
+  }
+
+  if (cameraMode === 'park') {
+    document.getElementById('parkPlate').value = val;
+  } else if (cameraMode === 'exit') {
+    document.getElementById('exitIdentifier').value = val;
+  }
+
+  closeCamera();
+  showToast(`Plate ${val} filled in form`, 'success');
 }
 
-function quickPark() {
-  if (!popupSlotId) return;
-  // Switch to manual mode with this slot pre-selected
-  chosenSlot = popupSlotId;
-  document.getElementById('chosenSlotValue').textContent = popupSlotId;
-  document.getElementById('chosenSlotDisplay').classList.remove('hidden');
-  setAssignModeQuiet('manual');
-  closeSlotPopup();
-  showToast(`Slot ${popupSlotId} pre-selected`, 'info');
-  document.getElementById('parkPlate').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  document.getElementById('parkPlate').focus();
+/**
+ * useOcrSuggestion()
+ * Called when operator clicks the partial OCR suggestion button.
+ * Copies the partial text into the manual input so they can correct it.
+ */
+function useOcrSuggestion() {
+  const suggestionBtn = document.getElementById('suggestionBtn');
+  if (!suggestionBtn) return;
+
+  const partial = suggestionBtn.textContent.trim();
+  const input   = document.getElementById('manualPlateInput');
+  input.value   = partial;
+  validateManualInput(input);
+  input.focus();
+
+  document.getElementById('ocrSuggestion').classList.add('hidden');
+  showToast('Partial text copied — correct it and press USE', 'info');
 }
 
 /* ══════════════════════════════════════════════════════════
-   TOAST & HELPERS
+   TOAST & GENERIC HELPERS
 ══════════════════════════════════════════════════════════ */
 let toastTimer = null;
 function showToast(msg, type) {
