@@ -1163,10 +1163,28 @@ function printReceipt() { window.print(); }
 /* ══════════════════════════════════════════════════════════
    RESET
 ══════════════════════════════════════════════════════════ */
-async function confirmReset() {
-  const pin = prompt('Enter admin PIN to reset (default: 0000)');
-  if (pin === null) return;
-  if (pin !== '0000') { showToast('Incorrect PIN', 'error'); return; }
+function confirmReset() {
+  document.getElementById('pinInput').value = '';
+  document.getElementById('pinError').textContent = '';
+  document.getElementById('pinOverlay').classList.remove('hidden');
+}
+
+function pinCancel() {
+  document.getElementById('pinOverlay').classList.add('hidden');
+}
+
+function pinClearError() {
+  document.getElementById('pinError').textContent = '';
+}
+
+async function pinConfirm() {
+  const pin = document.getElementById('pinInput').value.trim();
+  if (pin !== '0000') {
+    document.getElementById('pinError').textContent = 'Incorrect PIN — try again';
+    document.getElementById('pinInput').value = '';
+    return;
+  }
+  document.getElementById('pinOverlay').classList.add('hidden');
 
   try {
     const res  = await fetch('/api/reset', { method: 'POST' });
@@ -1189,6 +1207,10 @@ async function confirmReset() {
       blueprintMode    = 'grid';
       bupSelectedFile  = null;
       pendingPositions = {};
+      analyticsVisible = false;
+      fullHistory      = [];
+      document.getElementById('analyticsPanel').classList.add('hidden');
+      document.getElementById('analyticsToggleBtn').classList.remove('active');
       clearChosenSlot();
       setFloorMode('single');
       bupRemoveFile();
@@ -1474,3 +1496,215 @@ function showToast(msg, type) {
   toastTimer = setTimeout(() => el.classList.add('hidden'), 3200);
 }
 function setMsg(el, msg, type) { el.textContent = msg; el.className = `form-msg ${type}`; }
+
+/* ══════════════════════════════════════════════════════════
+   ██████████████████████████████████████████████████████
+   PHASE 4 — ANALYTICS, HISTORY, CSV EXPORT
+   ██████████████████████████████████████████████████████
+══════════════════════════════════════════════════════════ */
+
+let analyticsVisible = false;
+let fullHistory      = [];      // master history array for client-side filter
+
+/* ── TOGGLE ANALYTICS PANEL ─────────────────────────────── */
+function toggleAnalytics() {
+  analyticsVisible = !analyticsVisible;
+  const panel  = document.getElementById('analyticsPanel');
+  const btn    = document.getElementById('analyticsToggleBtn');
+  panel.classList.toggle('hidden', !analyticsVisible);
+  btn.classList.toggle('active', analyticsVisible);
+
+  if (analyticsVisible) {
+    loadAnalytics();
+    loadHistory();
+  }
+}
+
+/* ── LOAD ANALYTICS FROM API ─────────────────────────────── */
+async function loadAnalytics() {
+  try {
+    const res  = await fetch('/api/analytics');
+    const data = await res.json();
+    if (!data.success) return;
+
+    const a = data.analytics;
+
+    document.getElementById('astatToday').textContent   = a.total_today;
+    document.getElementById('astatAvgStay').textContent = a.avg_stay_min > 0 ? a.avg_stay_min : '—';
+    document.getElementById('astatPeak').textContent    = a.peak_hour || '—';
+    document.getElementById('astatRevenue').textContent = '₹' + Math.round(a.total_revenue);
+
+    // Revenue bars
+    const rb = a.revenue_by_type;
+    ['car', 'bike', 'truck'].forEach(type => {
+      const info = rb[type] || { amount: 0, pct: 0 };
+      document.getElementById(`revBar${cap(type)}`).style.width  = info.pct + '%';
+      document.getElementById(`revAmt${cap(type)}`).textContent  = '₹' + Math.round(info.amount);
+    });
+
+  } catch (e) { console.error('Analytics load failed', e); }
+}
+
+function cap(str) { return str.charAt(0).toUpperCase() + str.slice(1); }
+
+/* ── LOAD HISTORY FROM API ───────────────────────────────── */
+async function loadHistory() {
+  try {
+    const res  = await fetch('/api/history');
+    const data = await res.json();
+    if (!data.success) return;
+
+    fullHistory = data.history;
+    renderHistoryTable(fullHistory);
+  } catch (e) { console.error('History load failed', e); }
+}
+
+/* ── RENDER HISTORY TABLE ────────────────────────────────── */
+function renderHistoryTable(records) {
+  const tbody = document.getElementById('historyTableBody');
+
+  if (!records.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="history-empty">No exit records yet</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = records.map(r => {
+    const entryTime = r.entry_time.includes('T')
+      ? r.entry_time.split('T')[1].slice(0, 8)
+      : r.entry_time;
+    const exitTime  = r.exit_time.includes('T')
+      ? r.exit_time.split('T')[1].slice(0, 8)
+      : r.exit_time;
+    const durStr = r.duration_min < 60
+      ? `${r.duration_min}m`
+      : `${Math.floor(r.duration_min / 60)}h ${Math.round(r.duration_min % 60)}m`;
+
+    const typeClass = `type-${r.vehicle_type.toLowerCase()}`;
+
+    return `<tr>
+      <td class="plate-col">${r.number_plate}</td>
+      <td class="${typeClass}">${r.vehicle_type.toUpperCase()}</td>
+      <td>${r.slot}</td>
+      <td>${entryTime}</td>
+      <td>${exitTime}</td>
+      <td>${durStr}</td>
+      <td class="fee-col">₹${r.fee}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── CLIENT-SIDE HISTORY FILTER ──────────────────────────── */
+function filterHistory(query) {
+  const q = query.trim().toUpperCase();
+  if (!q) {
+    renderHistoryTable(fullHistory);
+    return;
+  }
+  const filtered = fullHistory.filter(r =>
+    r.number_plate.includes(q) ||
+    r.ticket_id.includes(q) ||
+    r.slot.toUpperCase().includes(q)
+  );
+  renderHistoryTable(filtered);
+}
+
+/* ── EXPORT HISTORY CSV ──────────────────────────────────── */
+function exportHistoryCSV() {
+  if (!fullHistory.length) {
+    showToast('No history records to export', 'info');
+    return;
+  }
+
+  const headers = ['Ticket ID', 'Plate', 'Type', 'Slot', 'Entry Time', 'Exit Time', 'Duration (min)', 'Fee (₹)'];
+  const rows = fullHistory.map(r => [
+    r.ticket_id,
+    r.number_plate,
+    r.vehicle_type,
+    r.slot,
+    r.entry_time,
+    r.exit_time,
+    r.duration_min,
+    r.fee
+  ]);
+
+  downloadCSV('parking_history.csv', headers, rows);
+  showToast('History CSV downloaded', 'success');
+}
+
+/* ── EXPORT REVENUE SUMMARY CSV ──────────────────────────── */
+async function exportRevenueCSV() {
+  try {
+    const res  = await fetch('/api/analytics');
+    const data = await res.json();
+    if (!data.success) { showToast('Could not fetch analytics', 'error'); return; }
+
+    const a   = data.analytics;
+    const rb  = a.revenue_by_type;
+    const now = new Date().toLocaleString();
+
+    const headers = ['Date/Time', 'Total Revenue (₹)', 'Car Revenue (₹)', 'Bike Revenue (₹)', 'Truck Revenue (₹)', 'Vehicles Today', 'Avg Stay (min)', 'Peak Hour'];
+    const rows = [[
+      now,
+      Math.round(a.total_revenue),
+      Math.round((rb.car  || {}).amount || 0),
+      Math.round((rb.bike || {}).amount || 0),
+      Math.round((rb.truck|| {}).amount || 0),
+      a.total_today,
+      a.avg_stay_min,
+      a.peak_hour
+    ]];
+
+    downloadCSV('parking_revenue_summary.csv', headers, rows);
+    showToast('Revenue CSV downloaded', 'success');
+  } catch (e) { showToast('Export failed', 'error'); }
+}
+
+/* ── CSV HELPER ──────────────────────────────────────────── */
+function downloadCSV(filename, headers, rows) {
+  const escape = val => {
+    const str = String(val ?? '');
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+      ? `"${str.replace(/"/g, '""')}"`
+      : str;
+  };
+
+  const csvContent = [
+    headers.map(escape).join(','),
+    ...rows.map(row => row.map(escape).join(','))
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href     = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/* ── AUTO-REFRESH ANALYTICS WHEN PANEL IS OPEN ───────────── */
+// Hook into the existing pollStatus — after every poll, refresh analytics if open
+const _originalApplyStatus = applyStatus;
+// We extend applyStatus to also refresh analytics data when panel is open
+window._analyticsRefreshBound = false;
+(function patchApplyStatus() {
+  const orig = window.applyStatus || function(){};
+  // applyStatus is already defined above — we just extend the polling
+})();
+
+// Simpler: override the pollStatus to also call loadAnalytics when visible
+const _origPollStatus = pollStatus;
+async function pollStatus() {
+  try {
+    const res  = await fetch('/api/status');
+    const data = await res.json();
+    if (data.setup) applyStatus(data);
+    // Phase 4 — refresh analytics panel if it's open
+    if (analyticsVisible) {
+      loadAnalytics();
+      loadHistory();
+    }
+  } catch (e) {}
+}
