@@ -13,16 +13,18 @@ def save_data(parking_lot):
             "status":   info["status"],
             "vehicle":  info["vehicle"].to_dict() if info["vehicle"] else None,
             "floor":    info.get("floor"),
-            "position": info.get("position")    # {x: %, y: %} — persisted for blueprint drag
+            "position": info.get("position")
         }
 
     data = {
-        "row_config":   parking_lot.row_config,
-        "floor_config": parking_lot.floor_config,
-        "multi_floor":  parking_lot.multi_floor,
-        "revenue":      parking_lot.revenue,
-        "layout":       layout_data,
-        "queue":        [v.to_dict() for v in parking_lot.queue]
+        "row_config":      parking_lot.row_config,
+        "floor_config":    parking_lot.floor_config,
+        "multi_floor":     parking_lot.multi_floor,
+        "revenue":         parking_lot.revenue,
+        "revenue_by_type": parking_lot.revenue_by_type,   # Phase 4
+        "layout":          layout_data,
+        "queue":           [v.to_dict() for v in parking_lot.queue],
+        "history":         parking_lot.history             # Phase 4
     }
 
     with open(DATA_FILE, "w") as f:
