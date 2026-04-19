@@ -12,11 +12,8 @@ app = Flask(__name__)
 parking_lot = None
 billing     = Billing()
 
-# ─────────────────────────────────────────────
-# BLUEPRINT IMAGE CONFIG
-# ─────────────────────────────────────────────
-UPLOAD_FOLDER   = os.path.join('static', 'uploads')
-BLUEPRINT_FILE  = os.path.join(UPLOAD_FOLDER, 'blueprint.png')
+UPLOAD_FOLDER      = os.path.join('static', 'uploads')
+BLUEPRINT_FILE     = os.path.join(UPLOAD_FOLDER, 'blueprint.png')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -57,7 +54,7 @@ def status():
             "status":   info["status"],
             "vehicle":  info["vehicle"].to_dict() if info["vehicle"] else None,
             "floor":    info.get("floor"),
-            "position": info.get("position")          # {x%, y%} from drag
+            "position": info.get("position")
         }
 
     return jsonify({
@@ -104,7 +101,6 @@ def setup():
             if not all(isinstance(n, int) and 1 <= n <= 20 for n in rows):
                 return jsonify({"success": False, "message": f"Floor '{fl['name']}': each row must have 1–20 slots"})
         parking_lot = ParkingLot(row_config=None, floor_config=floor_config)
-
     else:
         if not row_config:
             return jsonify({"success": False, "message": "Row configuration is empty"})
@@ -115,7 +111,6 @@ def setup():
         parking_lot = ParkingLot(row_config=row_config)
 
     save_data(parking_lot)
-
     return jsonify({
         "success": True,
         "message": f"Parking lot created! {parking_lot.capacity} total slots."
@@ -123,35 +118,29 @@ def setup():
 
 
 # ─────────────────────────────────────────────
-# API: UPLOAD BLUEPRINT IMAGE  ← NEW Phase 3
+# API: UPLOAD BLUEPRINT
 # ─────────────────────────────────────────────
 
 @app.route('/api/upload-blueprint', methods=['POST'])
 def upload_blueprint():
     if 'blueprint' not in request.files:
         return jsonify({"success": False, "message": "No file in request"})
-
     file = request.files['blueprint']
-
     if file.filename == '':
         return jsonify({"success": False, "message": "No file selected"})
-
     if not allowed_file(file.filename):
         return jsonify({"success": False, "message": "Invalid file type. Use PNG, JPG, GIF, or WEBP"})
-
-    # Always save as blueprint.png regardless of input format name
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     file.save(BLUEPRINT_FILE)
-
     return jsonify({
-        "success":  True,
-        "message":  "Blueprint uploaded successfully",
-        "url":      f"/static/uploads/blueprint.png?t={int(__import__('time').time())}"
+        "success": True,
+        "message": "Blueprint uploaded successfully",
+        "url":     f"/static/uploads/blueprint.png?t={int(__import__('time').time())}"
     })
 
 
 # ─────────────────────────────────────────────
-# API: BLUEPRINT STATUS  ← NEW Phase 3
+# API: BLUEPRINT STATUS
 # ─────────────────────────────────────────────
 
 @app.route('/api/blueprint-status')
@@ -164,29 +153,48 @@ def blueprint_status():
 
 
 # ─────────────────────────────────────────────
-# API: SAVE SLOT POSITIONS  ← NEW Phase 3
+# API: SAVE SLOT POSITIONS
 # ─────────────────────────────────────────────
 
 @app.route('/api/save-slot-positions', methods=['POST'])
 def save_slot_positions():
     global parking_lot
-
     if not parking_lot:
         return jsonify({"success": False, "message": "Parking lot not configured yet"})
-
     data      = request.json
-    positions = data.get('positions', {})   # { "A1": {"x": 23.5, "y": 41.2}, ... }
-
+    positions = data.get('positions', {})
     for slot_id, pos in positions.items():
         if slot_id in parking_lot.layout:
             parking_lot.layout[slot_id]['position'] = {
                 "x": float(pos.get('x', 50)),
                 "y": float(pos.get('y', 50))
             }
-
     save_data(parking_lot)
-
     return jsonify({"success": True, "message": f"Saved positions for {len(positions)} slots"})
+
+
+# ─────────────────────────────────────────────
+# API: HISTORY  ← NEW Phase 4
+# ─────────────────────────────────────────────
+
+@app.route('/api/history')
+def history():
+    if not parking_lot:
+        return jsonify({"success": False, "history": []})
+    # Return most recent 200 records, newest first
+    records = list(reversed(parking_lot.history[-200:]))
+    return jsonify({"success": True, "history": records})
+
+
+# ─────────────────────────────────────────────
+# API: ANALYTICS  ← NEW Phase 4
+# ─────────────────────────────────────────────
+
+@app.route('/api/analytics')
+def analytics():
+    if not parking_lot:
+        return jsonify({"success": False})
+    return jsonify({"success": True, "analytics": parking_lot.get_analytics()})
 
 
 # ─────────────────────────────────────────────
@@ -196,7 +204,6 @@ def save_slot_positions():
 @app.route('/api/park', methods=['POST'])
 def park():
     global parking_lot
-
     if not parking_lot:
         return jsonify({"success": False, "message": "Parking lot not configured yet"})
 
@@ -219,19 +226,16 @@ def park():
 
     vehicle = Vehicle(number_plate, vehicle_type)
 
-    # ── PREFERRED SPECIFIC SLOT ───────────────────────────────
     if preferred_slot:
         if preferred_slot not in parking_lot.layout:
             return jsonify({"success": False, "message": f"Slot {preferred_slot} does not exist"})
         if parking_lot.layout[preferred_slot]["status"] == "occupied":
             return jsonify({"success": False, "message": f"Slot {preferred_slot} was just taken. Please choose another."})
-
         parking_lot.layout[preferred_slot]["status"]  = "occupied"
         parking_lot.layout[preferred_slot]["vehicle"] = vehicle
         parking_lot.stack.append(vehicle)
         nearly_full = len(parking_lot.stack) >= 0.8 * parking_lot.capacity
         save_data(parking_lot)
-
         return jsonify({
             "success":      True,
             "queued":       False,
@@ -244,11 +248,7 @@ def park():
             "manual_slot":  True
         })
 
-    # ── AUTO-ASSIGN (with optional floor preference) ──────────
-    result = parking_lot.park_vehicle(
-        vehicle,
-        preferred_floor=preferred_floor if preferred_floor else None
-    )
+    result = parking_lot.park_vehicle(vehicle, preferred_floor=preferred_floor if preferred_floor else None)
     save_data(parking_lot)
 
     if result["queued"]:
@@ -281,20 +281,15 @@ def park():
 @app.route('/api/exit', methods=['POST'])
 def exit_vehicle():
     global parking_lot
-
     if not parking_lot:
         return jsonify({"success": False, "message": "Parking lot not configured yet"})
-
     data       = request.json
     identifier = data.get('identifier', '').strip().upper()
-
     if not identifier:
         return jsonify({"success": False, "message": "Please enter Ticket ID or Vehicle Number"})
-
     result = parking_lot.remove_vehicle(identifier, billing)
     if result["success"]:
         save_data(parking_lot)
-
     return jsonify(result)
 
 
@@ -306,14 +301,10 @@ def exit_vehicle():
 def reset():
     global parking_lot
     parking_lot = None
-
     if os.path.exists("data/parking_data.json"):
         os.remove("data/parking_data.json")
-
-    # Also remove the uploaded blueprint image on reset
     if os.path.exists(BLUEPRINT_FILE):
         os.remove(BLUEPRINT_FILE)
-
     return jsonify({"success": True, "message": "System reset successfully"})
 
 
@@ -323,11 +314,9 @@ def reset():
 
 def bootstrap():
     global parking_lot
-
     data = load_data()
     if not data:
         return
-
     try:
         multi_floor  = data.get("multi_floor", False)
         floor_config = data.get("floor_config")
@@ -339,6 +328,10 @@ def bootstrap():
 
         parking_lot.revenue = data.get("revenue", 0)
 
+        # Phase 4 — restore history and per-type revenue
+        parking_lot.history         = data.get("history", [])
+        parking_lot.revenue_by_type = data.get("revenue_by_type", {"car": 0, "bike": 0, "truck": 0})
+
         for slot, sdata in data.get("layout", {}).items():
             if slot in parking_lot.layout:
                 if sdata.get("vehicle"):
@@ -348,7 +341,6 @@ def bootstrap():
                     parking_lot.stack.append(v)
                 if sdata.get("floor"):
                     parking_lot.layout[slot]["floor"] = sdata["floor"]
-                # Restore saved dragged positions
                 if sdata.get("position"):
                     parking_lot.layout[slot]["position"] = sdata["position"]
 
@@ -356,8 +348,9 @@ def bootstrap():
             v = Vehicle.from_dict(vdata)
             parking_lot.queue.append(v)
 
-        print(f"✓ Previous data loaded: {parking_lot.capacity} slots, "
-              f"Revenue: ₹{parking_lot.revenue}")
+        print(f"✓ Loaded: {parking_lot.capacity} slots · "
+              f"Revenue: ₹{parking_lot.revenue} · "
+              f"History: {len(parking_lot.history)} records")
 
     except Exception as e:
         print(f"Could not load previous data: {e}")
