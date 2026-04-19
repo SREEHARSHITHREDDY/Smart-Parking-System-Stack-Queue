@@ -1431,3 +1431,54 @@
   color: rgba(240,192,64,0.6);
   white-space: nowrap;
 }
+/* ═══════════════════════════════════════════
+   PHASE 3 ADDITIONS
+   Blueprint upload · Image mode · Draggable markers
+═══════════════════════════════════════════ */
+
+.blueprint-upload-section {
+  margin-top: 24px; padding: 20px;
+  background: var(--bg-deep); border: 1px solid var(--border);
+  border-radius: var(--r-lg); position: relative; overflow: hidden;
+}
+.blueprint-upload-section::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--purple), transparent);
+}
+.bup-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.bup-icon { font-size: 1.6rem; line-height: 1; flex-shrink: 0; }
+.bup-title { font-family: var(--font-display); font-size: 0.65rem; font-weight: 700; color: var(--purple); letter-spacing: 0.1em; margin-bottom: 5px; }
+.bup-sub { font-family: var(--font-data); font-size: 0.65rem; color: var(--text-lo); line-height: 1.5; }
+.bup-dropzone { border: 2px dashed var(--border-lit); border-radius: var(--r-md); padding: 28px 20px; text-align: center; cursor: pointer; transition: var(--t); }
+.bup-dropzone:hover, .bup-dropzone.dragover { border-color: var(--purple); background: var(--purple-soft); box-shadow: 0 0 20px var(--purple-glow); }
+.bup-dz-icon { font-size: 2rem; margin-bottom: 8px; transition: transform 0.2s ease; }
+.bup-dropzone:hover .bup-dz-icon { transform: scale(1.15); }
+.bup-dz-text { font-family: var(--font-display); font-size: 0.65rem; color: var(--text-mid); letter-spacing: 0.06em; margin-bottom: 6px; }
+.bup-dz-hint { font-family: var(--font-data); font-size: 0.6rem; color: var(--text-lo); }
+.bup-preview { border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--purple); box-shadow: 0 0 14px var(--purple-glow); }
+.bup-preview img { width: 100%; max-height: 200px; object-fit: cover; display: block; }
+.bup-preview-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bg-surface); border-top: 1px solid var(--border); }
+.bup-preview-name { font-family: var(--font-data); font-size: 0.7rem; color: var(--text-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.bup-remove-btn { padding: 5px 12px; background: transparent; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-lo); font-family: var(--font-display); font-size: 0.56rem; letter-spacing: 0.06em; cursor: pointer; transition: var(--t); white-space: nowrap; }
+.bup-remove-btn:hover { border-color: var(--red); color: var(--red); }
+.bp-header-right { display: flex; align-items: center; gap: 12px; }
+.bp-mode-toggle { display: flex; gap: 2px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px; }
+.bp-mode-btn { padding: 5px 12px; background: transparent; border: none; border-radius: 4px; color: var(--text-lo); font-family: var(--font-display); font-size: 0.56rem; font-weight: 700; letter-spacing: 0.06em; cursor: pointer; transition: var(--t); }
+.bp-mode-btn:hover { color: var(--text-mid); }
+.bp-mode-btn.active { background: var(--purple-soft); color: var(--purple); box-shadow: 0 0 8px var(--purple-glow); }
+.blueprint-image-wrap { position: relative; width: 100%; border-radius: var(--r-md); overflow: hidden; background: var(--bg-deep); border: 1px solid var(--border); min-height: 300px; }
+#blueprintBgImage { width: 100%; display: block; object-fit: contain; user-select: none; -webkit-user-drag: none; border-radius: var(--r-md); }
+.blueprint-markers { position: absolute; inset: 0; pointer-events: none; }
+.bp-marker { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; justify-content: center; width: 52px; min-height: 36px; border-radius: 6px; padding: 4px 5px; cursor: grab; transition: box-shadow 0.15s ease, transform 0.1s ease; pointer-events: all; user-select: none; gap: 2px; z-index: 10; }
+.bp-marker:hover { z-index: 20; }
+.bp-marker-empty { background: rgba(0,229,160,0.88); border: 2px solid var(--green); box-shadow: 0 0 10px rgba(0,229,160,0.5), 0 2px 6px rgba(0,0,0,0.5); }
+.bp-marker-empty:hover { box-shadow: 0 0 20px rgba(0,229,160,0.8), 0 4px 12px rgba(0,0,0,0.6); transform: translate(-50%,-50%) scale(1.1); }
+.bp-marker-occupied { background: rgba(255,68,88,0.90); border: 2px solid var(--red); box-shadow: 0 0 10px rgba(255,68,88,0.5), 0 2px 6px rgba(0,0,0,0.5); }
+.bp-marker-occupied:hover { box-shadow: 0 0 20px rgba(255,68,88,0.8), 0 4px 12px rgba(0,0,0,0.6); transform: translate(-50%,-50%) scale(1.1); }
+.bp-marker-dragging { cursor: grabbing !important; z-index: 100; box-shadow: 0 8px 30px rgba(0,0,0,0.7) !important; transform: translate(-50%,-50%) scale(1.15) !important; opacity: 0.92; }
+.bp-marker-id { font-family: var(--font-display); font-size: 0.6rem; font-weight: 900; color: var(--bg-deep); letter-spacing: 0.04em; line-height: 1; white-space: nowrap; }
+.bp-marker-plate { font-family: var(--font-data); font-size: 0.44rem; color: rgba(0,0,0,0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 48px; line-height: 1; }
+.bp-save-bar { position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: linear-gradient(0deg, rgba(5,10,16,0.92) 0%, transparent 100%); pointer-events: none; }
+.bp-save-hint { font-family: var(--font-data); font-size: 0.62rem; color: var(--text-lo); pointer-events: none; }
+.btn-bp-save { padding: 7px 16px; background: var(--purple); border: none; border-radius: var(--r-sm); color: #fff; font-family: var(--font-display); font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; transition: var(--t); pointer-events: all; }
+.btn-bp-save:hover { background: #c084fc; box-shadow: 0 0 14px var(--purple-glow); transform: translateY(-1px); }
