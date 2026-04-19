@@ -10,9 +10,10 @@ def save_data(parking_lot):
     layout_data = {}
     for slot, info in parking_lot.layout.items():
         layout_data[slot] = {
-            "status":  info["status"],
-            "vehicle": info["vehicle"].to_dict() if info["vehicle"] else None,
-            "floor":   info.get("floor")
+            "status":   info["status"],
+            "vehicle":  info["vehicle"].to_dict() if info["vehicle"] else None,
+            "floor":    info.get("floor"),
+            "position": info.get("position")    # {x: %, y: %} — persisted for blueprint drag
         }
 
     data = {
