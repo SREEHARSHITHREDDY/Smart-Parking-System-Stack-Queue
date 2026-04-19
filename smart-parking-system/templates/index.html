@@ -59,6 +59,39 @@
         <div class="preview-stats" id="previewStats"></div>
       </div>
 
+      <!-- ══ BLUEPRINT UPLOAD — Phase 3 ══ -->
+      <div class="blueprint-upload-section">
+        <div class="bup-header">
+          <span class="bup-icon">🗺</span>
+          <div>
+            <div class="bup-title">FLOOR PLAN IMAGE <span class="optional-tag">OPTIONAL</span></div>
+            <div class="bup-sub">Upload a photo or diagram of your parking area. Slot markers will be overlaid on it.</div>
+          </div>
+        </div>
+
+        <!-- Drop zone -->
+        <div class="bup-dropzone" id="bupDropzone"
+             ondragover="bupDragOver(event)"
+             ondragleave="bupDragLeave(event)"
+             ondrop="bupDrop(event)"
+             onclick="document.getElementById('bupFileInput').click()">
+          <div class="bup-dz-icon" id="bupDzIcon">📁</div>
+          <div class="bup-dz-text" id="bupDzText">Click or drag & drop a floor plan image</div>
+          <div class="bup-dz-hint">PNG · JPG · WEBP · GIF · Max 10MB</div>
+          <input type="file" id="bupFileInput" accept="image/*" style="display:none"
+                 onchange="bupFileSelected(this)">
+        </div>
+
+        <!-- Preview (shown after file selected) -->
+        <div class="bup-preview hidden" id="bupPreview">
+          <img id="bupPreviewImg" src="" alt="Blueprint preview" />
+          <div class="bup-preview-actions">
+            <span class="bup-preview-name" id="bupPreviewName"></span>
+            <button class="bup-remove-btn" onclick="bupRemoveFile()">✕ REMOVE</button>
+          </div>
+        </div>
+      </div>
+
     </div>
     <div class="modal-footer">
       <button class="btn-primary" onclick="submitSetup()">CREATE PARKING LOT</button>
@@ -83,7 +116,6 @@
         <span class="spi-label">SELECTED</span>
         <span class="spi-slot" id="spiSlot">NONE</span>
       </div>
-      <!-- Floor tabs (shown only in multi-floor mode) -->
       <div class="picker-floor-tabs hidden" id="pickerFloorTabs"></div>
       <div class="slot-picker-grid" id="slotPickerGrid"></div>
       <div class="slot-picker-legend">
@@ -122,16 +154,13 @@
             <div class="corner br"></div>
             <div class="scan-line" id="scanLine"></div>
           </div>
-          <!-- Crop zone indicator — shows operator where to aim -->
           <div class="crop-zone"></div>
           <canvas id="cameraCanvas" style="display:none;"></canvas>
-          <!-- Live scan status badge -->
           <div class="cam-live-badge" id="camLiveBadge">
             <span class="cam-live-dot"></span> LIVE
           </div>
         </div>
 
-        <!-- OCR result strip below video -->
         <div class="ocr-strip" id="ocrStrip">
           <div class="ocr-strip-left">
             <span class="ocr-strip-label">DETECTED</span>
@@ -142,7 +171,6 @@
           </div>
         </div>
 
-        <!-- Use detected plate button -->
         <button class="btn-use-detected hidden" id="usePlateBtn" onclick="useCapturedPlate()">
           ✅ USE THIS PLATE
         </button>
@@ -163,20 +191,15 @@
                  id="manualPlateInput"
                  class="manual-always-input"
                  placeholder="TS09AB1234"
-                 maxlength="10"
+                 maxlength="11"
                  oninput="this.value=this.value.toUpperCase(); validateManualInput(this)"
                  onkeydown="if(event.key==='Enter') submitManualPlate()" />
           <div class="manual-format-hint">Format: AA00AA0000</div>
-
-          <!-- Validation indicator -->
           <div class="manual-validation" id="manualValidation"></div>
-
           <button class="btn-manual-use" id="manualUseBtn"
                   onclick="submitManualPlate()" disabled>
             USE THIS NUMBER
           </button>
-
-          <!-- Quick plate suggestions if OCR got something partial -->
           <div class="ocr-suggestion hidden" id="ocrSuggestion">
             <div class="suggestion-label">OCR DETECTED (PARTIAL)</div>
             <button class="suggestion-btn" id="suggestionBtn" onclick="useOcrSuggestion()">—</button>
@@ -187,7 +210,6 @@
 
     </div>
 
-    <!-- Bottom actions -->
     <div class="camera-actions-v2">
       <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
     </div>
@@ -266,7 +288,7 @@
           <label>VEHICLE NUMBER</label>
           <div class="input-with-cam">
             <input type="text" id="parkPlate" placeholder="TS09AB1234"
-                   maxlength="10" oninput="this.value=this.value.toUpperCase()" />
+                   maxlength="11" oninput="this.value=this.value.toUpperCase()" />
             <button class="btn-cam" onclick="openCamera('park')" title="Scan with camera">📷</button>
           </div>
           <span class="hint">Format: AA00AA0000 · or use 📷 to scan</span>
@@ -281,7 +303,7 @@
           </div>
         </div>
 
-        <!-- FLOOR PREFERENCE (multi-floor only, optional) -->
+        <!-- FLOOR PREFERENCE (multi-floor only) -->
         <div class="form-group hidden" id="floorPrefGroup">
           <label>PREFERRED FLOOR <span class="optional-tag">OPTIONAL</span></label>
           <select id="floorPrefSelect" class="floor-select">
@@ -351,14 +373,35 @@
       <div class="panel blueprint-panel">
         <div class="panel-header-row">
           <div class="panel-title"><span>🗺</span> PARKING BLUEPRINT</div>
-          <div class="legend">
-            <span><span class="legend-dot empty"></span>AVAILABLE</span>
-            <span><span class="legend-dot occupied"></span>OCCUPIED</span>
+          <div class="bp-header-right">
+            <!-- Blueprint mode toggle shown only when image exists -->
+            <div class="bp-mode-toggle hidden" id="bpModeToggle">
+              <button class="bp-mode-btn active" id="bpModeGrid"   onclick="setBlueprintMode('grid')">⊞ GRID</button>
+              <button class="bp-mode-btn"        id="bpModeImage"  onclick="setBlueprintMode('image')">🖼 MAP</button>
+            </div>
+            <div class="legend">
+              <span><span class="legend-dot empty"></span>AVAILABLE</span>
+              <span><span class="legend-dot occupied"></span>OCCUPIED</span>
+            </div>
           </div>
         </div>
+
         <!-- Floor tabs (multi-floor only) -->
         <div class="floor-tabs hidden" id="floorTabs"></div>
+
+        <!-- GRID MODE (default) -->
         <div class="blueprint-grid" id="blueprintGrid"></div>
+
+        <!-- IMAGE MODE (Phase 3) — blueprint image with draggable markers -->
+        <div class="blueprint-image-wrap hidden" id="blueprintImageWrap">
+          <img id="blueprintBgImage" src="" alt="Parking blueprint" draggable="false" />
+          <div class="blueprint-markers" id="blueprintMarkers"></div>
+          <!-- Save positions button shown while in image mode -->
+          <div class="bp-save-bar" id="bpSaveBar">
+            <span class="bp-save-hint">Drag markers to match real slot positions</span>
+            <button class="btn-bp-save" onclick="saveSlotPositions()">💾 SAVE POSITIONS</button>
+          </div>
+        </div>
 
         <!-- Floor summary bar (multi-floor only) -->
         <div class="floor-summary hidden" id="floorSummary"></div>
@@ -378,6 +421,7 @@
     </section>
   </main>
 </div>
+
 <!-- ══════════════════════ SLOT DETAIL POPUP ══════════════════════ -->
 <div id="slotPopupOverlay" class="overlay hidden" onclick="closeSlotPopup(event)">
   <div class="modal slot-popup-modal" onclick="event.stopPropagation()">
