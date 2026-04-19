@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════
-   SMART PARKING SYSTEM — app.js  v5  (Phase 2 Complete)
+   SMART PARKING SYSTEM — app.js  v6  (Phase 3 Complete)
    Author: C. Sree Harshith Reddy
-   Includes: single floor · multi-floor · slot picker ·
-             camera OCR v2 (auto-scan, preprocessing, all helpers)
+   Adds: blueprint image upload · image mode · draggable slot
+         markers · position persistence · save positions API
 ═══════════════════════════════════════════════════════════ */
 
 /* ── STATE ───────────────────────────────────────────────── */
@@ -20,6 +20,13 @@ let isMultiFloor    = false;
 let floorMode       = 'single';
 let activeFloorTab  = null;
 let pickerFloorTab  = null;
+
+/* ── PHASE 3 STATE ───────────────────────────────────────── */
+let blueprintMode      = 'grid';   // 'grid' | 'image'
+let hasBlueprint       = false;
+let bupSelectedFile    = null;     // File object chosen in setup modal
+let draggingMarker     = null;     // { slotId, el, startX, startY, origX, origY }
+let pendingPositions   = {};       // { slotId: {x,y} } — unsaved drag changes
 
 /* ── INIT ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -56,7 +63,7 @@ function setFloorMode(mode) {
 /* ══════════════════════════════════════════════════════════
    SINGLE-FLOOR ROW BUILDER
 ══════════════════════════════════════════════════════════ */
-function addRow(builderId, btnLabel) {
+function addRow(builderId) {
   const bId     = builderId || 'rowBuilder';
   const builder = document.getElementById(bId);
   const rowCount = builder.children.length;
@@ -209,7 +216,7 @@ function getFloorConfig() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   PREVIEW (single + multi floor)
+   PREVIEW
 ══════════════════════════════════════════════════════════ */
 function updatePreview() {
   const grid  = document.getElementById('previewGrid');
@@ -242,7 +249,6 @@ function updatePreview() {
       floorLabel.style.cssText = `font-family:var(--font-display);font-size:0.58rem;color:var(--gold);margin:6px 0 4px;letter-spacing:0.08em;`;
       floorLabel.textContent   = `▸ ${floor.name}`;
       grid.appendChild(floorLabel);
-
       floor.rows.forEach((slots, i) => {
         const letter = String.fromCharCode(65 + i);
         const row    = document.createElement('div');
@@ -263,7 +269,60 @@ function updatePreview() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   SUBMIT SETUP
+   PHASE 3 — BLUEPRINT UPLOAD (setup modal)
+══════════════════════════════════════════════════════════ */
+
+function bupDragOver(e) {
+  e.preventDefault();
+  document.getElementById('bupDropzone').classList.add('dragover');
+}
+function bupDragLeave(e) {
+  document.getElementById('bupDropzone').classList.remove('dragover');
+}
+function bupDrop(e) {
+  e.preventDefault();
+  document.getElementById('bupDropzone').classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) bupLoadFile(file);
+}
+function bupFileSelected(input) {
+  if (input.files[0]) bupLoadFile(input.files[0]);
+}
+
+function bupLoadFile(file) {
+  const allowed = ['image/png','image/jpeg','image/gif','image/webp'];
+  if (!allowed.includes(file.type)) {
+    showToast('Invalid file type — use PNG, JPG, GIF or WEBP', 'error');
+    return;
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('File too large — max 10MB', 'error');
+    return;
+  }
+
+  bupSelectedFile = file;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    document.getElementById('bupPreviewImg').src = e.target.result;
+    document.getElementById('bupPreviewName').textContent = file.name;
+    document.getElementById('bupDropzone').classList.add('hidden');
+    document.getElementById('bupPreview').classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+}
+
+function bupRemoveFile() {
+  bupSelectedFile = null;
+  document.getElementById('bupPreviewImg').src    = '';
+  document.getElementById('bupPreviewName').textContent = '';
+  document.getElementById('bupFileInput').value   = '';
+  document.getElementById('bupDropzone').classList.remove('hidden');
+  document.getElementById('bupPreview').classList.add('hidden');
+}
+
+/* ══════════════════════════════════════════════════════════
+   SUBMIT SETUP  (uploads image first if selected, then config)
 ══════════════════════════════════════════════════════════ */
 async function submitSetup() {
   const errEl = document.getElementById('setupError');
@@ -285,6 +344,24 @@ async function submitSetup() {
     body = { multi_floor: false, row_config: config };
   }
 
+  // Upload blueprint image first if one was selected
+  if (bupSelectedFile) {
+    const formData = new FormData();
+    formData.append('blueprint', bupSelectedFile);
+    try {
+      const upRes  = await fetch('/api/upload-blueprint', { method: 'POST', body: formData });
+      const upData = await upRes.json();
+      if (!upData.success) {
+        errEl.textContent = `Image upload failed: ${upData.message}`;
+        return;
+      }
+    } catch (e) {
+      errEl.textContent = 'Image upload failed — check server connection.';
+      return;
+    }
+  }
+
+  // Then POST lot configuration
   try {
     const res  = await fetch('/api/setup', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -339,6 +416,7 @@ function applyStatus(data) {
   latestConfig   = data.row_config;
   latestFloorCfg = data.floor_config;
   isMultiFloor   = data.multi_floor || false;
+  hasBlueprint   = data.hasBlueprint || false;
 
   document.getElementById('hstatCapacity').querySelector('.hstat-val').textContent = stats.capacity;
   document.getElementById('hstatOccupied').querySelector('.hstat-val').textContent = stats.occupied;
@@ -353,6 +431,16 @@ function applyStatus(data) {
 
   document.getElementById('revenueAmount').textContent = '₹' + data.revenue.toFixed(0);
 
+  // Show/hide the Grid vs Map toggle
+  const modeToggle = document.getElementById('bpModeToggle');
+  if (hasBlueprint) {
+    modeToggle.classList.remove('hidden');
+  } else {
+    modeToggle.classList.add('hidden');
+    // If blueprint removed, fall back to grid
+    if (blueprintMode === 'image') setBlueprintMode('grid');
+  }
+
   if (isMultiFloor && latestFloorCfg) {
     setupFloorTabs(latestFloorCfg, data.floor_stats);
     setupFloorPrefSelect(latestFloorCfg);
@@ -364,7 +452,13 @@ function applyStatus(data) {
     document.getElementById('floorPrefGroup').classList.add('hidden');
   }
 
-  renderBlueprint(data.row_config, data.layout, data.floor_config);
+  // Render whichever blueprint mode is active
+  if (blueprintMode === 'image' && hasBlueprint) {
+    renderImageBlueprint();
+  } else {
+    renderBlueprint(data.row_config, data.layout, data.floor_config);
+  }
+
   renderQueue(data.queue);
 
   if (!document.getElementById('slotPickerOverlay').classList.contains('hidden')) {
@@ -404,7 +498,6 @@ function setupFloorTabs(floorCfg, floorStats) {
     tab.onclick       = () => switchFloorTab(fl.name);
     tabBar.appendChild(tab);
   });
-
   if (!activeFloorTab) activeFloorTab = floorCfg[0].name;
 }
 
@@ -413,7 +506,11 @@ function switchFloorTab(floorName) {
   document.querySelectorAll('.floor-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.floor === floorName);
   });
-  renderBlueprint(latestConfig, latestLayout, latestFloorCfg);
+  if (blueprintMode === 'image' && hasBlueprint) {
+    renderImageBlueprint();
+  } else {
+    renderBlueprint(latestConfig, latestLayout, latestFloorCfg);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -424,7 +521,6 @@ function updateFloorSummary(floorStats) {
   const bar = document.getElementById('floorSummary');
   bar.classList.remove('hidden');
   bar.innerHTML = '';
-
   floorStats.forEach(fs => {
     const pct  = fs.capacity > 0 ? Math.round((fs.occupied / fs.capacity) * 100) : 0;
     const card = document.createElement('div');
@@ -432,8 +528,7 @@ function updateFloorSummary(floorStats) {
     card.innerHTML = `
       <div class="fsc-name">${fs.name}</div>
       <div class="fsc-bar-wrap">
-        <div class="fsc-bar-fill ${pct >= 85 ? 'full' : pct >= 60 ? 'warn' : ''}"
-             style="width:${pct}%"></div>
+        <div class="fsc-bar-fill ${pct >= 85 ? 'full' : pct >= 60 ? 'warn' : ''}" style="width:${pct}%"></div>
       </div>
       <div class="fsc-nums"><span>${fs.empty}</span> free · <span>${fs.occupied}</span> used</div>
     `;
@@ -447,7 +542,6 @@ function updateFloorSummary(floorStats) {
 function setupFloorPrefSelect(floorCfg) {
   const sel = document.getElementById('floorPrefSelect');
   if (sel.options.length === floorCfg.length + 1) return;
-
   sel.innerHTML = '<option value="">Any floor (auto-assign)</option>';
   floorCfg.forEach(fl => {
     const opt       = document.createElement('option');
@@ -458,7 +552,29 @@ function setupFloorPrefSelect(floorCfg) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   BLUEPRINT RENDER
+   BLUEPRINT MODE TOGGLE  — Phase 3
+══════════════════════════════════════════════════════════ */
+function setBlueprintMode(mode) {
+  blueprintMode = mode;
+  document.getElementById('bpModeGrid').classList.toggle('active',  mode === 'grid');
+  document.getElementById('bpModeImage').classList.toggle('active', mode === 'image');
+
+  const gridEl  = document.getElementById('blueprintGrid');
+  const imageEl = document.getElementById('blueprintImageWrap');
+
+  if (mode === 'image' && hasBlueprint) {
+    gridEl.classList.add('hidden');
+    imageEl.classList.remove('hidden');
+    renderImageBlueprint();
+  } else {
+    gridEl.classList.remove('hidden');
+    imageEl.classList.add('hidden');
+    renderBlueprint(latestConfig, latestLayout, latestFloorCfg);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   GRID BLUEPRINT RENDER
 ══════════════════════════════════════════════════════════ */
 function renderBlueprint(rowConfig, layout, floorCfg) {
   const grid = document.getElementById('blueprintGrid');
@@ -468,17 +584,14 @@ function renderBlueprint(rowConfig, layout, floorCfg) {
     const targetFloor = activeFloorTab || floorCfg[0].name;
     const floor       = floorCfg.find(f => f.name === targetFloor);
     if (!floor) return;
-
     floor.rows.forEach((slotCount, ri) => {
       const letter = String.fromCharCode(65 + ri);
       const row    = document.createElement('div');
       row.className = 'blueprint-row';
-
       const tag = document.createElement('span');
       tag.className   = 'row-tag';
       tag.textContent = letter;
       row.appendChild(tag);
-
       for (let ci = 0; ci < slotCount; ci++) {
         const slotId   = `${targetFloor}-${letter}${ci + 1}`;
         const slotData = layout[slotId];
@@ -487,18 +600,15 @@ function renderBlueprint(rowConfig, layout, floorCfg) {
       }
       grid.appendChild(row);
     });
-
   } else {
     rowConfig.forEach((slotCount, ri) => {
       const letter = String.fromCharCode(65 + ri);
       const row    = document.createElement('div');
       row.className = 'blueprint-row';
-
       const tag = document.createElement('span');
       tag.className   = 'row-tag';
       tag.textContent = letter;
       row.appendChild(tag);
-
       for (let ci = 0; ci < slotCount; ci++) {
         const slotId   = `${letter}${ci + 1}`;
         const slotData = layout[slotId];
@@ -516,7 +626,6 @@ function buildSlotCell(slotId, occupied, slotData) {
   cell.title     = occupied
     ? `${slotId} — ${slotData.vehicle.number_plate} — click for details`
     : `${slotId} — Available — click to park here`;
-
   cell.onclick = () => openSlotPopup(slotId);
 
   const idSpan       = document.createElement('span');
@@ -533,13 +642,201 @@ function buildSlotCell(slotId, occupied, slotData) {
 }
 
 /* ══════════════════════════════════════════════════════════
+   IMAGE BLUEPRINT RENDER  — Phase 3
+   Slot markers overlaid absolutely on the blueprint image,
+   positioned by saved x%/y% or spread in a grid as default.
+══════════════════════════════════════════════════════════ */
+function renderImageBlueprint() {
+  const wrap      = document.getElementById('blueprintImageWrap');
+  const markersEl = document.getElementById('blueprintMarkers');
+  const bgImg     = document.getElementById('blueprintBgImage');
+
+  // Set image src with cache-bust so it reloads if changed
+  bgImg.src = `/static/uploads/blueprint.png?t=${Date.now()}`;
+
+  markersEl.innerHTML = '';
+  pendingPositions    = {};
+
+  // Build list of slot IDs for current view
+  let slotIds = [];
+  if (isMultiFloor && latestFloorCfg) {
+    const targetFloor = activeFloorTab || latestFloorCfg[0].name;
+    const floor       = latestFloorCfg.find(f => f.name === targetFloor);
+    if (floor) {
+      floor.rows.forEach((count, ri) => {
+        const letter = String.fromCharCode(65 + ri);
+        for (let ci = 0; ci < count; ci++) {
+          slotIds.push(`${targetFloor}-${letter}${ci + 1}`);
+        }
+      });
+    }
+  } else {
+    latestConfig.forEach((count, ri) => {
+      const letter = String.fromCharCode(65 + ri);
+      for (let ci = 0; ci < count; ci++) {
+        slotIds.push(`${letter}${ci + 1}`);
+      }
+    });
+  }
+
+  const total = slotIds.length;
+
+  slotIds.forEach((slotId, idx) => {
+    const slotData = latestLayout[slotId];
+    const occupied = slotData && slotData.status === 'occupied';
+
+    // Use saved position if exists, else spread in grid across image
+    let posX, posY;
+    if (slotData && slotData.position) {
+      posX = slotData.position.x;
+      posY = slotData.position.y;
+    } else {
+      // Default grid spread: evenly across image in rows of ~10
+      const cols    = Math.ceil(Math.sqrt(total * 1.6));
+      const col     = idx % cols;
+      const row     = Math.floor(idx / cols);
+      const totalRows = Math.ceil(total / cols);
+      posX = 5 + (col / Math.max(cols - 1, 1)) * 88;
+      posY = 8 + (row / Math.max(totalRows - 1, 1)) * 80;
+    }
+
+    const marker = document.createElement('div');
+    marker.className     = 'bp-marker' + (occupied ? ' bp-marker-occupied' : ' bp-marker-empty');
+    marker.dataset.slot  = slotId;
+    marker.style.left    = posX + '%';
+    marker.style.top     = posY + '%';
+
+    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+    marker.innerHTML = `
+      <span class="bp-marker-id">${displayId}</span>
+      ${occupied ? `<span class="bp-marker-plate">${slotData.vehicle.number_plate}</span>` : ''}
+    `;
+
+    // Tooltip on hover
+    marker.title = occupied
+      ? `${slotId} · ${slotData.vehicle.number_plate} · ${slotData.vehicle.vehicle_type}`
+      : `${slotId} · Available`;
+
+    // Click opens slot popup
+    marker.addEventListener('click', (e) => {
+      if (!e._wasDragged) openSlotPopup(slotId);
+    });
+
+    // Drag to reposition
+    attachMarkerDrag(marker, slotId, markersEl);
+
+    markersEl.appendChild(marker);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   DRAGGABLE MARKER LOGIC  — Phase 3
+   Works for both mouse (desktop) and touch (mobile)
+══════════════════════════════════════════════════════════ */
+function attachMarkerDrag(marker, slotId, container) {
+  let startClientX, startClientY;
+  let startPctX, startPctY;
+  let moved = false;
+
+  function getClientXY(e) {
+    if (e.touches) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  function onStart(e) {
+    e.preventDefault();
+    moved = false;
+    const { x, y } = getClientXY(e);
+    startClientX = x;
+    startClientY = y;
+    startPctX    = parseFloat(marker.style.left);
+    startPctY    = parseFloat(marker.style.top);
+    marker.classList.add('bp-marker-dragging');
+
+    document.addEventListener('mousemove', onMove, { passive: false });
+    document.addEventListener('mouseup',   onEnd);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend',  onEnd);
+  }
+
+  function onMove(e) {
+    e.preventDefault();
+    const { x, y }  = getClientXY(e);
+    const rect       = container.getBoundingClientRect();
+    const dx         = x - startClientX;
+    const dy         = y - startClientY;
+
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+
+    const newPctX = Math.min(95, Math.max(0, startPctX + (dx / rect.width)  * 100));
+    const newPctY = Math.min(95, Math.max(0, startPctY + (dy / rect.height) * 100));
+
+    marker.style.left = newPctX + '%';
+    marker.style.top  = newPctY + '%';
+
+    // Stage in pending (not yet saved to backend)
+    pendingPositions[slotId] = { x: newPctX, y: newPctY };
+  }
+
+  function onEnd(e) {
+    marker.classList.remove('bp-marker-dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup',   onEnd);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend',  onEnd);
+
+    // Mark event so click handler knows it was a drag
+    if (moved && e.type === 'mouseup') {
+      const clickEv = new MouseEvent('click', { bubbles: false });
+      clickEv._wasDragged = true;
+      // suppress — don't open popup after drag
+    }
+  }
+
+  marker.addEventListener('mousedown', onStart, { passive: false });
+  marker.addEventListener('touchstart', onStart, { passive: false });
+}
+
+/* ══════════════════════════════════════════════════════════
+   SAVE SLOT POSITIONS  — Phase 3
+   Sends all dragged positions to the backend.
+══════════════════════════════════════════════════════════ */
+async function saveSlotPositions() {
+  if (Object.keys(pendingPositions).length === 0) {
+    showToast('No changes to save — drag markers first', 'info');
+    return;
+  }
+
+  try {
+    const res  = await fetch('/api/save-slot-positions', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ positions: pendingPositions })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      // Merge saved positions into latestLayout so they survive next poll
+      for (const [slotId, pos] of Object.entries(pendingPositions)) {
+        if (latestLayout[slotId]) latestLayout[slotId].position = pos;
+      }
+      pendingPositions = {};
+      showToast('Slot positions saved', 'success');
+    } else {
+      showToast('Save failed: ' + data.message, 'error');
+    }
+  } catch (e) {
+    showToast('Server error while saving positions', 'error');
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
    QUEUE RENDER
 ══════════════════════════════════════════════════════════ */
 function renderQueue(queue) {
   const list  = document.getElementById('queueList');
   const badge = document.getElementById('queueCount');
   badge.textContent = queue.length;
-
   if (!queue.length) {
     list.innerHTML = '<div class="empty-state">No vehicles waiting</div>';
     return;
@@ -573,7 +870,6 @@ function setAssignMode(mode) {
   assignMode = mode;
   document.getElementById('assignAuto').classList.toggle('active',   mode === 'auto');
   document.getElementById('assignManual').classList.toggle('active', mode === 'manual');
-
   if (mode === 'auto') {
     clearChosenSlot();
   } else {
@@ -667,15 +963,13 @@ function buildPickerCell(slotId) {
   const cell = document.createElement('div');
   cell.className = occupied ? 'sp-cell taken' : isChosen ? 'sp-cell selected' : 'sp-cell available';
 
-  const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
-
-  const idEl       = document.createElement('span');
-  idEl.className   = 'sp-id';
-  idEl.textContent = displayId;
-
-  const plateEl       = document.createElement('span');
-  plateEl.className   = 'sp-plate';
-  plateEl.textContent = occupied ? slotData.vehicle.number_plate : 'FREE';
+  const displayId       = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+  const idEl            = document.createElement('span');
+  idEl.className        = 'sp-id';
+  idEl.textContent      = displayId;
+  const plateEl         = document.createElement('span');
+  plateEl.className     = 'sp-plate';
+  plateEl.textContent   = occupied ? slotData.vehicle.number_plate : 'FREE';
 
   cell.appendChild(idEl);
   cell.appendChild(plateEl);
@@ -725,7 +1019,6 @@ async function parkVehicle() {
 
   if (!plate) { setMsg(msgEl, 'Please enter a vehicle number.', 'error'); return; }
 
-  // Accept all Indian plate formats: AA00AA0000 / AA00A0000 / AA00AAA0000
   const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
   if (!plateRegex.test(plate)) {
     setMsg(msgEl, 'Invalid format. Use: AA00AA0000 (e.g. TS09AB1234)', 'error');
@@ -738,7 +1031,6 @@ async function parkVehicle() {
   }
 
   const body = { number_plate: plate, vehicle_type: selectedType };
-
   if (assignMode === 'manual' && chosenSlot) {
     body.preferred_slot = chosenSlot;
   } else if (isMultiFloor) {
@@ -806,10 +1098,7 @@ async function exitVehicle() {
     showExitReceipt(data);
 
     if (data.queued_vehicle_parked) {
-      showToast(
-        `Queue: ${data.queued_vehicle_parked.number_plate} parked at ${data.queued_vehicle_parked.slot}`,
-        'info'
-      );
+      showToast(`Queue: ${data.queued_vehicle_parked.number_plate} parked at ${data.queued_vehicle_parked.slot}`, 'info');
     }
     pollStatus();
   } catch (e) { setMsg(msgEl, 'Server error. Try again.', 'error'); }
@@ -850,7 +1139,6 @@ function showEntryReceipt(data, queued) {
 function showExitReceipt(data) {
   document.getElementById('receiptIcon').textContent  = '💳';
   document.getElementById('receiptTitle').textContent = 'EXIT RECEIPT';
-
   const entry    = new Date(`1970-01-01T${data.entry_time}`);
   const exitT    = new Date(`1970-01-01T${data.exit_time}`);
   let   diffMins = Math.round((exitT - entry) / 60000);
@@ -858,34 +1146,13 @@ function showExitReceipt(data) {
   const durStr   = diffMins < 60 ? `${diffMins} min` : `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`;
 
   document.getElementById('receiptBody').innerHTML = `
-    <div class="receipt-row">
-      <span class="r-label">Vehicle Number</span>
-      <span class="r-value">${data.number_plate}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Vehicle Type</span>
-      <span class="r-value">${data.vehicle_type.toUpperCase()}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Slot</span>
-      <span class="r-value">${data.slot}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Entry Time</span>
-      <span class="r-value">${data.entry_time}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Exit Time</span>
-      <span class="r-value">${data.exit_time}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Duration</span>
-      <span class="r-value">${durStr}</span>
-    </div>
-    <div class="receipt-row total">
-      <span class="r-label">AMOUNT CHARGED</span>
-      <span class="r-value">₹${data.fee}</span>
-    </div>
+    <div class="receipt-row"><span class="r-label">Vehicle Number</span><span class="r-value">${data.number_plate}</span></div>
+    <div class="receipt-row"><span class="r-label">Vehicle Type</span><span class="r-value">${data.vehicle_type.toUpperCase()}</span></div>
+    <div class="receipt-row"><span class="r-label">Slot</span><span class="r-value">${data.slot}</span></div>
+    <div class="receipt-row"><span class="r-label">Entry Time</span><span class="r-value">${data.entry_time}</span></div>
+    <div class="receipt-row"><span class="r-label">Exit Time</span><span class="r-value">${data.exit_time}</span></div>
+    <div class="receipt-row"><span class="r-label">Duration</span><span class="r-value">${durStr}</span></div>
+    <div class="receipt-row total"><span class="r-label">AMOUNT CHARGED</span><span class="r-value">₹${data.fee}</span></div>
   `;
   document.getElementById('receiptOverlay').classList.remove('hidden');
 }
@@ -910,16 +1177,21 @@ async function confirmReset() {
       document.getElementById('setupOverlay').classList.remove('hidden');
       document.getElementById('rowBuilder').innerHTML   = '';
       document.getElementById('floorBuilder').innerHTML = '';
-      floorCount     = 0;
-      floorMode      = 'single';
-      activeFloorTab = null;
-      pickerFloorTab = null;
-      isMultiFloor   = false;
-      latestLayout   = {};
-      latestConfig   = [];
-      latestFloorCfg = null;
+      floorCount       = 0;
+      floorMode        = 'single';
+      activeFloorTab   = null;
+      pickerFloorTab   = null;
+      isMultiFloor     = false;
+      latestLayout     = {};
+      latestConfig     = [];
+      latestFloorCfg   = null;
+      hasBlueprint     = false;
+      blueprintMode    = 'grid';
+      bupSelectedFile  = null;
+      pendingPositions = {};
       clearChosenSlot();
       setFloorMode('single');
+      bupRemoveFile();
       addRow();
       showToast('System reset', 'info');
     }
@@ -950,10 +1222,7 @@ function openSlotPopup(slotId) {
     document.getElementById('popupPlate').textContent  = v.number_plate;
     document.getElementById('popupType').textContent   = v.vehicle_type.toUpperCase();
     document.getElementById('popupTicket').textContent = v.ticket_id;
-
-    const entryStr = v.entry_time.includes('T')
-      ? v.entry_time.split('T')[1].slice(0, 8)
-      : v.entry_time;
+    const entryStr = v.entry_time.includes('T') ? v.entry_time.split('T')[1].slice(0, 8) : v.entry_time;
     document.getElementById('popupEntry').textContent = entryStr;
 
     if (durationInterval) clearInterval(durationInterval);
@@ -964,15 +1233,13 @@ function openSlotPopup(slotId) {
       if (diffMins < 0) diffMins = 0;
       const hrs    = Math.floor(diffMins / 60);
       const mins   = diffMins % 60;
-      const durStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
-      document.getElementById('popupDuration').textContent = durStr;
+      document.getElementById('popupDuration').textContent = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
       const rate      = RATES[v.vehicle_type] || 30;
       const billHours = Math.max(1, Math.ceil(diffMins / 60));
       document.getElementById('popupFee').textContent = `₹${billHours * rate}`;
     }
     updateDuration();
     durationInterval = setInterval(updateDuration, 30000);
-
   } else {
     const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
     document.getElementById('popupEmptySlotId').textContent = displayId;
@@ -1011,32 +1278,20 @@ function quickPark() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   ██████████████████████████████████████████████████████
-   PHASE 2 — CAMERA OCR  (Complete, all helpers defined)
-   ██████████████████████████████████████████████████████
+   CAMERA OCR  (Phase 2 — unchanged)
 ══════════════════════════════════════════════════════════ */
-
 let scanInterval  = null;
 let lastDetected  = null;
 let scanCooldown  = false;
 
-/* ── Plate regex — all Indian formats ──────────────────────
-   TS09AB1234  (new 10-char)
-   TN33J1364   (old 9-char)
-   MH12ABC1234 (3-letter series)
-─────────────────────────────────────────────────────────── */
 const PLATE_REGEX = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}/;
-
-const PLATE_NOISE = ['INDIA', 'IND', 'BHARAT', 'BH', 'HSRP',
-                     'INA', 'INIA', 'NDIA', 'INDO'];
+const PLATE_NOISE = ['INDIA', 'IND', 'BHARAT', 'BH', 'HSRP', 'INA', 'INIA', 'NDIA', 'INDO'];
 
 function cleanOcrText(raw) {
   let text = raw.toUpperCase().replace(/\s+/g, '');
   PLATE_NOISE.forEach(word => { text = text.split(word).join(''); });
-  text = text.replace(/[^A-Z0-9]/g, '');
-  return text;
+  return text.replace(/[^A-Z0-9]/g, '');
 }
-
 function extractBestPlate(raw) {
   const cleaned = cleanOcrText(raw);
   const matches = cleaned.match(new RegExp(PLATE_REGEX.source, 'g'));
@@ -1044,9 +1299,7 @@ function extractBestPlate(raw) {
   return matches.reduce((a, b) => a.length >= b.length ? a : b);
 }
 
-/* ── Tesseract worker (reused) ──────────────────────────── */
 let ocrWorker = null;
-
 async function initOcrWorker() {
   if (ocrWorker) return;
   ocrWorker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
@@ -1057,13 +1310,8 @@ async function initOcrWorker() {
   });
 }
 
-/* ── OPEN CAMERA ────────────────────────────────────────── */
 function openCamera(mode) {
-  cameraMode    = mode;
-  capturedPlate = null;
-  lastDetected  = null;
-
-  /* Reset all camera UI */
+  cameraMode = mode; capturedPlate = null; lastDetected = null;
   setOcrStrip('—', 'Starting camera…', false);
   document.getElementById('usePlateBtn').classList.add('hidden');
   document.getElementById('manualPlateInput').value       = '';
@@ -1073,17 +1321,8 @@ function openCamera(mode) {
   document.getElementById('manualPlateInput').className   = 'manual-always-input';
   document.getElementById('ocrSuggestion').classList.add('hidden');
   document.getElementById('cameraOverlay').classList.remove('hidden');
-
   initOcrWorker();
-
-  navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: { ideal: 'environment' },
-      width:      { ideal: 1280 },
-      height:     { ideal: 720 },
-      frameRate:  { ideal: 30 }
-    }
-  })
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } })
   .then(stream => {
     cameraStream = stream;
     const video  = document.getElementById('cameraFeed');
@@ -1097,27 +1336,20 @@ function openCamera(mode) {
   });
 }
 
-/* ── CLOSE CAMERA ───────────────────────────────────────── */
 function closeCamera() {
   stopAutoScan();
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(t => t.stop());
-    cameraStream = null;
-  }
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
   const video = document.getElementById('cameraFeed');
   if (video) video.srcObject = null;
   document.getElementById('cameraOverlay').classList.add('hidden');
   lastDetected = null;
 }
 
-/* ── AUTO SCAN LOOP ─────────────────────────────────────── */
 function startAutoScan() {
   stopAutoScan();
   setOcrStrip('—', 'Scanning…', false);
   setBadgeScanning(true);
-  scanInterval = setInterval(() => {
-    if (!scanCooldown) runOcrScan();
-  }, 1800);
+  scanInterval = setInterval(() => { if (!scanCooldown) runOcrScan(); }, 1800);
   setTimeout(runOcrScan, 600);
 }
 
@@ -1126,320 +1358,119 @@ function stopAutoScan() {
   setBadgeScanning(false);
 }
 
-/* ── MAIN OCR SCAN ──────────────────────────────────────── */
 async function runOcrScan() {
   const video = document.getElementById('cameraFeed');
   if (!video || !video.srcObject || video.readyState < 2) return;
   if (scanCooldown) return;
   scanCooldown = true;
-
   try {
-    const vw = video.videoWidth  || 640;
-    const vh = video.videoHeight || 480;
-
-    /* Capture full frame */
+    const vw = video.videoWidth || 640, vh = video.videoHeight || 480;
     const fullCanvas = document.getElementById('cameraCanvas');
-    fullCanvas.width  = vw;
-    fullCanvas.height = vh;
-    const fullCtx = fullCanvas.getContext('2d');
-    fullCtx.drawImage(video, 0, 0, vw, vh);
-
-    /* Crop centre zone where plates appear */
-    const cropX = Math.floor(vw * 0.10);
-    const cropY = Math.floor(vh * 0.25);
-    const cropW = Math.floor(vw * 0.80);
-    const cropH = Math.floor(vh * 0.50);
-
-    /* Upscale 2× for better OCR accuracy */
-    const scale      = 2;
+    fullCanvas.width = vw; fullCanvas.height = vh;
+    fullCanvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
+    const cropX = Math.floor(vw * 0.10), cropY = Math.floor(vh * 0.25);
+    const cropW = Math.floor(vw * 0.80), cropH = Math.floor(vh * 0.50);
+    const scale = 2;
     const procCanvas = document.createElement('canvas');
-    procCanvas.width  = cropW * scale;
-    procCanvas.height = cropH * scale;
-    const procCtx = procCanvas.getContext('2d');
-    procCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH,
-                      0, 0, procCanvas.width, procCanvas.height);
-
-    /* Preprocess: greyscale + blur + adaptive threshold */
+    procCanvas.width = cropW * scale; procCanvas.height = cropH * scale;
+    procCanvas.getContext('2d').drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, procCanvas.width, procCanvas.height);
     const processedCanvas = applyPreprocessing(procCanvas);
-
     await initOcrWorker();
     const result  = await ocrWorker.recognize(processedCanvas);
-    const rawFull = result.data.text;
     const conf    = Math.round(result.data.confidence);
-    let   plate   = extractBestPlate(rawFull);
-
-    /* If no match, retry with inverted image (handles white-on-black plates) */
-    if (!plate) {
-      const invertedCanvas = applyPreprocessing(procCanvas, true);
-      const result2 = await ocrWorker.recognize(invertedCanvas);
-      plate = extractBestPlate(result2.data.text);
-    }
-
+    let   plate   = extractBestPlate(result.data.text);
+    if (!plate) { const r2 = await ocrWorker.recognize(applyPreprocessing(procCanvas, true)); plate = extractBestPlate(r2.data.text); }
     if (plate) {
-      lastDetected  = plate;
-      capturedPlate = plate;
-
+      lastDetected = plate; capturedPlate = plate;
       setOcrStrip(plate, `Confidence ${conf}%`, true);
       document.getElementById('ocrStrip').style.borderColor = 'var(--green)';
       document.getElementById('ocrSuggestion').classList.add('hidden');
       document.getElementById('usePlateBtn').classList.remove('hidden');
-
-      /* Auto-fill manual input only if it's empty */
       const manualInput = document.getElementById('manualPlateInput');
-      if (!manualInput.value) {
-        manualInput.value = plate;
-        validateManualInput(manualInput);
-      }
-
-      stopAutoScan();
-      setBadgeScanning(false);
+      if (!manualInput.value) { manualInput.value = plate; validateManualInput(manualInput); }
+      stopAutoScan(); setBadgeScanning(false);
       showToast(`Plate detected: ${plate}`, 'success');
-
     } else {
-      const cleaned = cleanOcrText(rawFull);
+      const cleaned = cleanOcrText(result.data.text);
       setOcrStrip('NO PLATE DETECTED', `Conf ${conf}% — aim at plate`, false);
       document.getElementById('ocrStrip').style.borderColor = 'var(--border)';
       document.getElementById('usePlateBtn').classList.add('hidden');
-
       if (cleaned.length >= 4) {
         document.getElementById('suggestionBtn').textContent = cleaned.slice(0, 10);
         document.getElementById('ocrSuggestion').classList.remove('hidden');
-      } else {
-        document.getElementById('ocrSuggestion').classList.add('hidden');
-      }
+      } else { document.getElementById('ocrSuggestion').classList.add('hidden'); }
     }
-
-  } catch (e) {
-    setOcrStrip('SCAN ERROR', 'Retrying…', false);
-  } finally {
-    scanCooldown = false;
-  }
+  } catch (e) { setOcrStrip('SCAN ERROR', 'Retrying…', false); }
+  finally { scanCooldown = false; }
 }
 
-/* ══════════════════════════════════════════════════════════
-   IMAGE PREPROCESSING
-   Greyscale → Gaussian blur → Adaptive threshold → (optional invert)
-══════════════════════════════════════════════════════════ */
 function applyPreprocessing(sourceCanvas, invert = false) {
-  const w   = sourceCanvas.width;
-  const h   = sourceCanvas.height;
-  const out = document.createElement('canvas');
-  out.width  = w;
-  out.height = h;
-  const ctx = out.getContext('2d');
-  ctx.drawImage(sourceCanvas, 0, 0);
-
-  const imageData = ctx.getImageData(0, 0, w, h);
-  const data      = imageData.data;
-
-  /* 1. Greyscale */
+  const w = sourceCanvas.width, h = sourceCanvas.height;
+  const out = document.createElement('canvas'); out.width = w; out.height = h;
+  const ctx = out.getContext('2d'); ctx.drawImage(sourceCanvas, 0, 0);
+  const imageData = ctx.getImageData(0, 0, w, h); const data = imageData.data;
   const grey = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    grey[i] = Math.round(0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]);
-  }
-
-  /* 2. Gaussian 3×3 blur to reduce noise */
-  const blurred = new Uint8Array(w * h);
-  const kernel  = [1, 2, 1, 2, 4, 2, 1, 2, 1];
-  const kSum    = 16;
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      let sum = 0, ki = 0;
-      for (let ky = -1; ky <= 1; ky++) {
-        for (let kx = -1; kx <= 1; kx++) {
-          sum += grey[(y + ky) * w + (x + kx)] * kernel[ki++];
-        }
-      }
-      blurred[y * w + x] = sum / kSum;
-    }
-  }
-  for (let x = 0; x < w; x++) {
-    blurred[x]           = grey[x];
-    blurred[(h-1)*w + x] = grey[(h-1)*w + x];
-  }
-  for (let y = 0; y < h; y++) {
-    blurred[y * w]         = grey[y * w];
-    blurred[y * w + w - 1] = grey[y * w + w - 1];
-  }
-
-  /* 3. Adaptive threshold — local mean − constant C */
-  const blockSize = Math.max(11, Math.floor(Math.min(w, h) / 20) | 1);
-  const C         = 8;
-  const binary    = new Uint8Array(w * h);
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const half = Math.floor(blockSize / 2);
-      let   sum  = 0, cnt = 0;
-      for (let ky = Math.max(0, y - half); ky <= Math.min(h - 1, y + half); ky++) {
-        for (let kx = Math.max(0, x - half); kx <= Math.min(w - 1, x + half); kx++) {
-          sum += blurred[ky * w + kx]; cnt++;
-        }
-      }
-      binary[y * w + x] = blurred[y * w + x] < (sum / cnt - C) ? 0 : 255;
-    }
-  }
-
-  /* 4. Write back (with optional invert) */
-  for (let i = 0; i < w * h; i++) {
-    const val       = invert ? 255 - binary[i] : binary[i];
-    data[i * 4]     = val;
-    data[i * 4 + 1] = val;
-    data[i * 4 + 2] = val;
-    data[i * 4 + 3] = 255;
-  }
-  ctx.putImageData(imageData, 0, 0);
-  return out;
+  for (let i = 0; i < w * h; i++) grey[i] = Math.round(0.299*data[i*4] + 0.587*data[i*4+1] + 0.114*data[i*4+2]);
+  const blurred = new Uint8Array(w * h); const kernel = [1,2,1,2,4,2,1,2,1]; const kSum = 16;
+  for (let y = 1; y < h-1; y++) for (let x = 1; x < w-1; x++) { let sum=0,ki=0; for (let ky=-1;ky<=1;ky++) for (let kx=-1;kx<=1;kx++) sum+=grey[(y+ky)*w+(x+kx)]*kernel[ki++]; blurred[y*w+x]=sum/kSum; }
+  for (let x=0;x<w;x++){blurred[x]=grey[x];blurred[(h-1)*w+x]=grey[(h-1)*w+x];}
+  for (let y=0;y<h;y++){blurred[y*w]=grey[y*w];blurred[y*w+w-1]=grey[y*w+w-1];}
+  const blockSize = Math.max(11, Math.floor(Math.min(w,h)/20)|1); const C = 8; const binary = new Uint8Array(w*h);
+  for (let y=0;y<h;y++) for (let x=0;x<w;x++) { const half=Math.floor(blockSize/2); let sum=0,cnt=0; for (let ky=Math.max(0,y-half);ky<=Math.min(h-1,y+half);ky++) for (let kx=Math.max(0,x-half);kx<=Math.min(w-1,x+half);kx++){sum+=blurred[ky*w+kx];cnt++;} binary[y*w+x]=blurred[y*w+x]<(sum/cnt-C)?0:255; }
+  for (let i=0;i<w*h;i++){const val=invert?255-binary[i]:binary[i];data[i*4]=data[i*4+1]=data[i*4+2]=val;data[i*4+3]=255;}
+  ctx.putImageData(imageData,0,0); return out;
 }
 
-/* ══════════════════════════════════════════════════════════
-   CAMERA UI HELPERS  ← These were missing — now all defined
-══════════════════════════════════════════════════════════ */
-
-/**
- * setOcrStrip(plateText, statusText, detected)
- * Updates the OCR result strip below the camera feed.
- *  plateText  — text to show in the big plate display (e.g. "TS09AB1234" or "—")
- *  statusText — small status line (e.g. "Confidence 84%" or "Scanning…")
- *  detected   — true = green "detected" style, false = dim style
- */
 function setOcrStrip(plateText, statusText, detected) {
   const plateEl  = document.getElementById('ocrPlate');
   const statusEl = document.getElementById('ocrStatus');
-
-  if (plateEl) {
-    plateEl.textContent = plateText;
-    plateEl.className   = 'ocr-strip-plate' + (detected ? ' detected' : plateText === '—' ? '' : ' no-detect');
-  }
-  if (statusEl) {
-    statusEl.textContent = statusText;
-  }
+  if (plateEl) { plateEl.textContent = plateText; plateEl.className = 'ocr-strip-plate' + (detected ? ' detected' : plateText === '—' ? '' : ' no-detect'); }
+  if (statusEl) statusEl.textContent = statusText;
 }
-
-/**
- * setBadgeScanning(scanning)
- * Toggles the LIVE badge between "scanning" (gold pulse) and normal (red pulse).
- */
 function setBadgeScanning(scanning) {
   const badge = document.getElementById('camLiveBadge');
   if (!badge) return;
-  if (scanning) {
-    badge.classList.add('scanning');
-    badge.innerHTML = `<span class="cam-live-dot"></span> SCANNING`;
-  } else {
-    badge.classList.remove('scanning');
-    badge.innerHTML = `<span class="cam-live-dot"></span> LIVE`;
-  }
+  if (scanning) { badge.classList.add('scanning'); badge.innerHTML = `<span class="cam-live-dot"></span> SCANNING`; }
+  else { badge.classList.remove('scanning'); badge.innerHTML = `<span class="cam-live-dot"></span> LIVE`; }
 }
-
-/**
- * useCapturedPlate()
- * Called when operator clicks "✅ USE THIS PLATE" button.
- * Fills the correct form input (park or exit) with the captured plate,
- * then closes the camera modal.
- */
 function useCapturedPlate() {
   if (!capturedPlate) return;
-
-  if (cameraMode === 'park') {
-    document.getElementById('parkPlate').value = capturedPlate;
-  } else if (cameraMode === 'exit') {
-    document.getElementById('exitIdentifier').value = capturedPlate;
-  }
-
-  closeCamera();
-  showToast(`Plate ${capturedPlate} filled in form`, 'success');
+  if (cameraMode === 'park') document.getElementById('parkPlate').value = capturedPlate;
+  else if (cameraMode === 'exit') document.getElementById('exitIdentifier').value = capturedPlate;
+  closeCamera(); showToast(`Plate ${capturedPlate} filled in form`, 'success');
 }
-
-/**
- * validateManualInput(inputEl)
- * Called oninput on the manual plate input inside the camera modal.
- * Shows green ✓ / red ✗ feedback and enables/disables the USE button.
- */
 function validateManualInput(inputEl) {
-  const val        = inputEl.value.toUpperCase().trim();
-  const validEl    = document.getElementById('manualValidation');
-  const useBtn     = document.getElementById('manualUseBtn');
+  const val = inputEl.value.toUpperCase().trim();
+  const validEl = document.getElementById('manualValidation'); const useBtn = document.getElementById('manualUseBtn');
   const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
-
-  if (!val) {
-    inputEl.className   = 'manual-always-input';
-    validEl.textContent = '';
-    validEl.className   = 'manual-validation';
-    useBtn.disabled     = true;
-    return;
-  }
-
-  if (plateRegex.test(val)) {
-    inputEl.className   = 'manual-always-input valid';
-    validEl.textContent = '✓ Valid plate format';
-    validEl.className   = 'manual-validation ok';
-    useBtn.disabled     = false;
-  } else {
-    inputEl.className   = 'manual-always-input invalid';
-    validEl.textContent = '✗ Format: AA00AA0000';
-    validEl.className   = 'manual-validation err';
-    useBtn.disabled     = true;
-  }
+  if (!val) { inputEl.className='manual-always-input'; validEl.textContent=''; validEl.className='manual-validation'; useBtn.disabled=true; return; }
+  if (plateRegex.test(val)) { inputEl.className='manual-always-input valid'; validEl.textContent='✓ Valid plate format'; validEl.className='manual-validation ok'; useBtn.disabled=false; }
+  else { inputEl.className='manual-always-input invalid'; validEl.textContent='✗ Format: AA00AA0000'; validEl.className='manual-validation err'; useBtn.disabled=true; }
 }
-
-/**
- * submitManualPlate()
- * Called when operator clicks "USE THIS NUMBER" inside the camera modal.
- * Validates, fills the target form input, and closes the camera.
- */
 function submitManualPlate() {
-  const val        = document.getElementById('manualPlateInput').value.toUpperCase().trim();
+  const val = document.getElementById('manualPlateInput').value.toUpperCase().trim();
   const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
-
-  if (!val || !plateRegex.test(val)) {
-    showToast('Please enter a valid plate number first', 'error');
-    return;
-  }
-
-  if (cameraMode === 'park') {
-    document.getElementById('parkPlate').value = val;
-  } else if (cameraMode === 'exit') {
-    document.getElementById('exitIdentifier').value = val;
-  }
-
-  closeCamera();
-  showToast(`Plate ${val} filled in form`, 'success');
+  if (!val || !plateRegex.test(val)) { showToast('Please enter a valid plate number first', 'error'); return; }
+  if (cameraMode === 'park') document.getElementById('parkPlate').value = val;
+  else if (cameraMode === 'exit') document.getElementById('exitIdentifier').value = val;
+  closeCamera(); showToast(`Plate ${val} filled in form`, 'success');
 }
-
-/**
- * useOcrSuggestion()
- * Called when operator clicks the partial OCR suggestion button.
- * Copies the partial text into the manual input so they can correct it.
- */
 function useOcrSuggestion() {
-  const suggestionBtn = document.getElementById('suggestionBtn');
-  if (!suggestionBtn) return;
-
-  const partial = suggestionBtn.textContent.trim();
-  const input   = document.getElementById('manualPlateInput');
-  input.value   = partial;
-  validateManualInput(input);
-  input.focus();
-
+  const suggestionBtn = document.getElementById('suggestionBtn'); if (!suggestionBtn) return;
+  const input = document.getElementById('manualPlateInput');
+  input.value = suggestionBtn.textContent.trim(); validateManualInput(input); input.focus();
   document.getElementById('ocrSuggestion').classList.add('hidden');
   showToast('Partial text copied — correct it and press USE', 'info');
 }
 
 /* ══════════════════════════════════════════════════════════
-   TOAST & GENERIC HELPERS
+   TOAST & HELPERS
 ══════════════════════════════════════════════════════════ */
 let toastTimer = null;
 function showToast(msg, type) {
   const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className   = `toast ${type || ''}`;
-  el.classList.remove('hidden');
+  el.textContent = msg; el.className = `toast ${type || ''}`; el.classList.remove('hidden');
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('hidden'), 3200);
 }
-
-function setMsg(el, msg, type) {
-  el.textContent = msg;
-  el.className   = `form-msg ${type}`;
-}
+function setMsg(el, msg, type) { el.textContent = msg; el.className = `form-msg ${type}`; }
