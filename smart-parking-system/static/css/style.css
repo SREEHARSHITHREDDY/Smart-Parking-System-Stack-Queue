@@ -1482,3 +1482,287 @@
 .bp-save-hint { font-family: var(--font-data); font-size: 0.62rem; color: var(--text-lo); pointer-events: none; }
 .btn-bp-save { padding: 7px 16px; background: var(--purple); border: none; border-radius: var(--r-sm); color: #fff; font-family: var(--font-display); font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; transition: var(--t); pointer-events: all; }
 .btn-bp-save:hover { background: #c084fc; box-shadow: 0 0 14px var(--purple-glow); transform: translateY(-1px); }
+/* ═══════════════════════════════════════════
+   PHASE 4 ADDITIONS — append to style.css
+   Analytics · History · CSV · PIN modal · Mobile
+═══════════════════════════════════════════ */
+
+/* ── ANALYTICS TOGGLE BUTTON ─────────────── */
+.btn-analytics-toggle {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 18px;
+  background: transparent;
+  border: 1px solid var(--border-lit);
+  border-radius: var(--r-sm);
+  color: var(--text-mid);
+  font-family: var(--font-display);
+  font-size: 0.6rem; font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer; transition: var(--t);
+}
+.btn-analytics-toggle:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 0 12px var(--gold-glow);
+}
+.btn-analytics-toggle.active {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+/* ── ANALYTICS PANEL ─────────────────────── */
+.analytics-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  margin: 0 24px 18px;
+  overflow: hidden;
+  animation: slideDown 0.3s ease;
+  position: relative;
+}
+.analytics-panel::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), var(--cyan), var(--gold), transparent);
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.analytics-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.analytics-title {
+  font-family: var(--font-display);
+  font-size: 0.68rem; font-weight: 700;
+  color: var(--gold); letter-spacing: 0.12em;
+  display: flex; align-items: center; gap: 8px;
+}
+.analytics-actions {
+  display: flex; gap: 8px;
+}
+
+/* ── ANALYTICS STAT CARDS ────────────────── */
+.analytics-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.astat {
+  background: var(--bg-surface);
+  padding: 16px 20px;
+  text-align: center;
+}
+.astat-val {
+  font-family: var(--font-display);
+  font-size: 1.6rem; font-weight: 900;
+  color: var(--cyan); line-height: 1;
+  margin-bottom: 5px;
+  text-shadow: 0 0 16px var(--cyan-glow);
+}
+.astat-label {
+  font-family: var(--font-data);
+  font-size: 0.55rem; color: var(--text-lo);
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+
+/* ── REVENUE BAR CHART ───────────────────── */
+.revenue-chart {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.revenue-chart-title {
+  font-family: var(--font-display);
+  font-size: 0.58rem; letter-spacing: 0.12em;
+  color: var(--text-lo); margin-bottom: 14px;
+}
+.rev-bar-group { display: flex; flex-direction: column; gap: 10px; }
+.rev-bar-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 80px;
+  align-items: center; gap: 10px;
+}
+.rev-bar-label {
+  font-family: var(--font-display);
+  font-size: 0.58rem; color: var(--text-mid);
+  letter-spacing: 0.06em; text-align: right;
+}
+.rev-bar-track {
+  height: 10px;
+  background: var(--bg-input);
+  border-radius: 5px; overflow: hidden;
+}
+.rev-bar-fill {
+  height: 100%; border-radius: 5px;
+  transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+  min-width: 2px;
+}
+.rev-bar-fill.car   { background: linear-gradient(90deg, var(--cyan-dim), var(--cyan)); box-shadow: 0 0 6px var(--cyan-glow); }
+.rev-bar-fill.bike  { background: linear-gradient(90deg, var(--green-dim), var(--green)); box-shadow: 0 0 6px rgba(0,229,160,0.3); }
+.rev-bar-fill.truck { background: linear-gradient(90deg, var(--gold-dim), var(--gold)); box-shadow: 0 0 6px var(--gold-glow); }
+.rev-bar-amount {
+  font-family: var(--font-display);
+  font-size: 0.7rem; color: var(--text-hi);
+  font-weight: 700; text-align: right;
+}
+
+/* ── HISTORY TABLE ───────────────────────── */
+.history-section { padding: 0 20px 20px; }
+.history-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 0 12px;
+}
+.history-title {
+  font-family: var(--font-display);
+  font-size: 0.58rem; letter-spacing: 0.12em; color: var(--text-lo);
+}
+.history-search-wrap { position: relative; }
+.history-search {
+  padding: 7px 12px 7px 30px;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text-hi);
+  font-family: var(--font-data); font-size: 0.78rem;
+  outline: none; transition: var(--t); width: 180px;
+}
+.history-search:focus { border-color: var(--cyan); box-shadow: 0 0 10px var(--cyan-glow); }
+.history-search-icon {
+  position: absolute; left: 9px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem; color: var(--text-lo); pointer-events: none;
+}
+
+.history-table-wrap {
+  max-height: 280px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.history-table {
+  width: 100%; border-collapse: collapse;
+}
+.history-table th {
+  background: var(--bg-input);
+  font-family: var(--font-display); font-size: 0.52rem;
+  letter-spacing: 0.1em; color: var(--text-lo);
+  padding: 10px 12px; text-align: left;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 1;
+  white-space: nowrap;
+}
+.history-table td {
+  font-family: var(--font-data); font-size: 0.72rem;
+  color: var(--text-mid); padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.history-table tr:last-child td { border-bottom: none; }
+.history-table tr:hover td { background: var(--bg-surface); color: var(--text-hi); }
+.history-table .plate-col { color: var(--text-hi); font-weight: 600; font-family: var(--font-display); font-size: 0.65rem; }
+.history-table .fee-col   { color: var(--gold); font-weight: 700; }
+.history-table .type-car   { color: var(--cyan); }
+.history-table .type-bike  { color: var(--green); }
+.history-table .type-truck { color: var(--gold); }
+
+.history-empty {
+  text-align: center; padding: 28px;
+  font-family: var(--font-data); font-size: 0.72rem;
+  color: var(--text-lo);
+}
+
+/* ── CSV EXPORT BUTTONS ──────────────────── */
+.btn-csv {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 14px;
+  background: transparent; border: 1px solid var(--border-lit);
+  border-radius: var(--r-sm); color: var(--text-mid);
+  font-family: var(--font-display); font-size: 0.56rem;
+  font-weight: 700; letter-spacing: 0.06em;
+  cursor: pointer; transition: var(--t); white-space: nowrap;
+}
+.btn-csv:hover {
+  border-color: var(--green); color: var(--green);
+  box-shadow: 0 0 10px rgba(0,229,160,0.2);
+}
+
+/* ── PIN MODAL ───────────────────────────── */
+.pin-modal { max-width: 360px; }
+.pin-input-wrap { text-align: center; padding: 10px 0 20px; }
+.pin-input {
+  width: 160px; padding: 16px;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--r-md); color: var(--text-hi);
+  font-family: var(--font-display); font-size: 1.8rem;
+  font-weight: 700; letter-spacing: 0.3em;
+  text-align: center; outline: none; transition: var(--t);
+}
+.pin-input:focus { border-color: var(--red); box-shadow: 0 0 14px rgba(255,68,88,0.3); }
+.pin-hint {
+  display: block; margin-top: 8px;
+  font-family: var(--font-data); font-size: 0.65rem;
+  color: var(--text-lo);
+}
+.pin-error {
+  color: var(--red); font-family: var(--font-data);
+  font-size: 0.7rem; min-height: 18px;
+  text-align: center; margin-top: 6px;
+}
+
+/* ── MOBILE POLISH (Phase 4) ─────────────── */
+@media (max-width: 900px) {
+  .analytics-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .analytics-panel { margin: 0 14px 14px; }
+  .analytics-stats { grid-template-columns: repeat(2, 1fr); }
+  .astat-val { font-size: 1.2rem; }
+  .rev-bar-row { grid-template-columns: 40px 1fr 60px; }
+  .history-search { width: 130px; }
+  .analytics-actions { flex-wrap: wrap; gap: 6px; }
+  .btn-analytics-toggle { font-size: 0.55rem; padding: 7px 12px; }
+
+  /* Header mobile */
+  .header { flex-wrap: wrap; gap: 8px; padding: 10px 14px; height: auto; }
+  .header-stats { order: 3; width: 100%; justify-content: space-between; }
+  .hstat { padding: 6px 8px; }
+  .hstat-val { font-size: 1rem; }
+
+  /* Main layout */
+  .main { grid-template-columns: 1fr; padding: 12px 14px; gap: 12px; }
+
+  /* Forms */
+  .type-selector { grid-template-columns: repeat(3, 1fr); }
+  .assign-toggle { grid-template-columns: 1fr 1fr; }
+
+  /* Blueprint */
+  .blueprint-panel { min-height: 200px; }
+  .slot-cell { width: 42px; height: 36px; }
+  .slot-id { font-size: 0.46rem; }
+  .slot-plate { font-size: 0.38rem; }
+
+  /* Modals */
+  .modal { width: 96%; max-height: 95vh; }
+  .modal-header { padding: 20px 18px 14px; }
+  .modal-body   { padding: 0 18px 18px; }
+  .modal-footer { padding: 0 18px 20px; }
+  .setup-modal  { max-width: 100%; }
+
+  /* Camera modal */
+  .camera-split { grid-template-columns: 1fr; padding: 0 16px 16px; }
+  .camera-modal-v2 { max-width: 100%; }
+  .camera-feed-wrap { aspect-ratio: 4/3; }
+
+  /* Analytics header */
+  .panel-header-row { flex-wrap: wrap; gap: 8px; }
+  .bp-header-right { flex-wrap: wrap; gap: 6px; }
+}
+
+@media (max-width: 375px) {
+  .hstat-label { font-size: 0.46rem; letter-spacing: 0.06em; }
+  .brand-name  { font-size: 0.78rem; }
+  .revenue-amount { font-size: 1.6rem; }
+}
