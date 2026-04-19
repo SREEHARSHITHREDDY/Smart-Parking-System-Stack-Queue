@@ -1,4 +1,6 @@
+import os
 from flask import Flask, render_template, request, jsonify
+from werkzeug.utils import secure_filename
 from models.vehicle import Vehicle
 from core.parking_lot import ParkingLot
 from core.billing import Billing
@@ -9,6 +11,23 @@ app = Flask(__name__)
 
 parking_lot = None
 billing     = Billing()
+
+# ─────────────────────────────────────────────
+# BLUEPRINT IMAGE CONFIG
+# ─────────────────────────────────────────────
+UPLOAD_FOLDER   = os.path.join('static', 'uploads')
+BLUEPRINT_FILE  = os.path.join(UPLOAD_FOLDER, 'blueprint.png')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def blueprint_exists():
+    return os.path.exists(BLUEPRINT_FILE)
 
 
 # ─────────────────────────────────────────────
@@ -27,27 +46,32 @@ def index():
 @app.route('/api/status')
 def status():
     if not parking_lot:
-        return jsonify({"setup": False})
+        return jsonify({
+            "setup":        False,
+            "hasBlueprint": blueprint_exists()
+        })
 
     layout_data = {}
     for slot, info in parking_lot.layout.items():
         layout_data[slot] = {
-            "status":  info["status"],
-            "vehicle": info["vehicle"].to_dict() if info["vehicle"] else None,
-            "floor":   info.get("floor")
+            "status":   info["status"],
+            "vehicle":  info["vehicle"].to_dict() if info["vehicle"] else None,
+            "floor":    info.get("floor"),
+            "position": info.get("position")          # {x%, y%} from drag
         }
 
     return jsonify({
-        "setup":        True,
-        "row_config":   parking_lot.row_config,
-        "floor_config": parking_lot.floor_config,
-        "multi_floor":  parking_lot.multi_floor,
-        "layout":       layout_data,
-        "queue":        [v.to_dict() for v in parking_lot.queue],
-        "revenue":      parking_lot.revenue,
-        "stats":        parking_lot.get_stats(),
-        "floor_stats":  parking_lot.get_floor_stats(),
-        "rates":        billing.get_rate_info()
+        "setup":         True,
+        "hasBlueprint":  blueprint_exists(),
+        "row_config":    parking_lot.row_config,
+        "floor_config":  parking_lot.floor_config,
+        "multi_floor":   parking_lot.multi_floor,
+        "layout":        layout_data,
+        "queue":         [v.to_dict() for v in parking_lot.queue],
+        "revenue":       parking_lot.revenue,
+        "stats":         parking_lot.get_stats(),
+        "floor_stats":   parking_lot.get_floor_stats(),
+        "rates":         billing.get_rate_info()
     })
 
 
@@ -65,13 +89,10 @@ def setup():
     row_config   = data.get('row_config', [])
 
     if multi_floor:
-        # ── MULTI-FLOOR VALIDATION ──────────────────────────
         if not floor_config:
             return jsonify({"success": False, "message": "Floor configuration is empty"})
-
         if len(floor_config) > 10:
             return jsonify({"success": False, "message": "Maximum 10 floors allowed"})
-
         for fl in floor_config:
             if not fl.get("name", "").strip():
                 return jsonify({"success": False, "message": "Each floor must have a name"})
@@ -82,18 +103,15 @@ def setup():
                 return jsonify({"success": False, "message": f"Floor '{fl['name']}': max 26 rows"})
             if not all(isinstance(n, int) and 1 <= n <= 20 for n in rows):
                 return jsonify({"success": False, "message": f"Floor '{fl['name']}': each row must have 1–20 slots"})
-
         parking_lot = ParkingLot(row_config=None, floor_config=floor_config)
 
     else:
-        # ── SINGLE FLOOR VALIDATION ──────────────────────────
         if not row_config:
             return jsonify({"success": False, "message": "Row configuration is empty"})
         if not all(isinstance(n, int) and 1 <= n <= 20 for n in row_config):
             return jsonify({"success": False, "message": "Each row must have 1 to 20 slots"})
         if len(row_config) > 26:
             return jsonify({"success": False, "message": "Maximum 26 rows allowed"})
-
         parking_lot = ParkingLot(row_config=row_config)
 
     save_data(parking_lot)
@@ -102,6 +120,73 @@ def setup():
         "success": True,
         "message": f"Parking lot created! {parking_lot.capacity} total slots."
     })
+
+
+# ─────────────────────────────────────────────
+# API: UPLOAD BLUEPRINT IMAGE  ← NEW Phase 3
+# ─────────────────────────────────────────────
+
+@app.route('/api/upload-blueprint', methods=['POST'])
+def upload_blueprint():
+    if 'blueprint' not in request.files:
+        return jsonify({"success": False, "message": "No file in request"})
+
+    file = request.files['blueprint']
+
+    if file.filename == '':
+        return jsonify({"success": False, "message": "No file selected"})
+
+    if not allowed_file(file.filename):
+        return jsonify({"success": False, "message": "Invalid file type. Use PNG, JPG, GIF, or WEBP"})
+
+    # Always save as blueprint.png regardless of input format name
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    file.save(BLUEPRINT_FILE)
+
+    return jsonify({
+        "success":  True,
+        "message":  "Blueprint uploaded successfully",
+        "url":      f"/static/uploads/blueprint.png?t={int(__import__('time').time())}"
+    })
+
+
+# ─────────────────────────────────────────────
+# API: BLUEPRINT STATUS  ← NEW Phase 3
+# ─────────────────────────────────────────────
+
+@app.route('/api/blueprint-status')
+def blueprint_status():
+    exists = blueprint_exists()
+    return jsonify({
+        "exists": exists,
+        "url":    "/static/uploads/blueprint.png" if exists else None
+    })
+
+
+# ─────────────────────────────────────────────
+# API: SAVE SLOT POSITIONS  ← NEW Phase 3
+# ─────────────────────────────────────────────
+
+@app.route('/api/save-slot-positions', methods=['POST'])
+def save_slot_positions():
+    global parking_lot
+
+    if not parking_lot:
+        return jsonify({"success": False, "message": "Parking lot not configured yet"})
+
+    data      = request.json
+    positions = data.get('positions', {})   # { "A1": {"x": 23.5, "y": 41.2}, ... }
+
+    for slot_id, pos in positions.items():
+        if slot_id in parking_lot.layout:
+            parking_lot.layout[slot_id]['position'] = {
+                "x": float(pos.get('x', 50)),
+                "y": float(pos.get('y', 50))
+            }
+
+    save_data(parking_lot)
+
+    return jsonify({"success": True, "message": f"Saved positions for {len(positions)} slots"})
 
 
 # ─────────────────────────────────────────────
@@ -222,9 +307,12 @@ def reset():
     global parking_lot
     parking_lot = None
 
-    import os
     if os.path.exists("data/parking_data.json"):
         os.remove("data/parking_data.json")
+
+    # Also remove the uploaded blueprint image on reset
+    if os.path.exists(BLUEPRINT_FILE):
+        os.remove(BLUEPRINT_FILE)
 
     return jsonify({"success": True, "message": "System reset successfully"})
 
@@ -252,13 +340,17 @@ def bootstrap():
         parking_lot.revenue = data.get("revenue", 0)
 
         for slot, sdata in data.get("layout", {}).items():
-            if slot in parking_lot.layout and sdata.get("vehicle"):
-                v = Vehicle.from_dict(sdata["vehicle"])
-                parking_lot.layout[slot]["status"]  = "occupied"
-                parking_lot.layout[slot]["vehicle"] = v
+            if slot in parking_lot.layout:
+                if sdata.get("vehicle"):
+                    v = Vehicle.from_dict(sdata["vehicle"])
+                    parking_lot.layout[slot]["status"]  = "occupied"
+                    parking_lot.layout[slot]["vehicle"] = v
+                    parking_lot.stack.append(v)
                 if sdata.get("floor"):
                     parking_lot.layout[slot]["floor"] = sdata["floor"]
-                parking_lot.stack.append(v)
+                # Restore saved dragged positions
+                if sdata.get("position"):
+                    parking_lot.layout[slot]["position"] = sdata["position"]
 
         for vdata in data.get("queue", []):
             v = Vehicle.from_dict(vdata)
