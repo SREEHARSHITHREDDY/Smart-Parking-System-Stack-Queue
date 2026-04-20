@@ -1,0 +1,200 @@
+═══════════════════════════════════════════════════════════
+  SMART PARKING SYSTEM — SETUP GUIDE
+  Author: C. Sree Harshith Reddy · Version: 1.0 · April 2026
+═══════════════════════════════════════════════════════════
+
+REQUIREMENTS
+────────────
+  • Python 3.10 or higher
+  • A modern web browser (Chrome, Firefox, or Safari)
+  • Internet connection (only needed to load fonts and Tesseract.js from CDN)
+  • No database required — everything is stored in a local JSON file
+
+
+STEP 1 — CLONE THE REPOSITORY
+──────────────────────────────
+  git clone https://github.com/SREEHARSHITHREDDY/Smart-Parking-System-Stack-Queue.git
+  cd Smart-Parking-System-Stack-Queue
+
+
+STEP 2 — NAVIGATE TO THE PROJECT FOLDER
+────────────────────────────────────────
+  cd smart-parking-system
+
+
+STEP 3 — INSTALL DEPENDENCIES
+──────────────────────────────
+  pip install -r requirements.txt
+
+  This installs:
+    • flask>=2.3.0    — the web server
+    • werkzeug>=2.3.0 — file upload handling (installed with Flask)
+
+  If you have multiple Python versions, use:
+    pip3 install -r requirements.txt
+
+
+STEP 4 — CREATE THE UPLOADS FOLDER
+────────────────────────────────────
+  mkdir -p static/uploads
+
+  This folder stores the blueprint image uploaded during setup.
+  It is already listed in .gitignore so uploaded images are not committed.
+
+
+STEP 5 — RUN THE SERVER
+────────────────────────
+  python app.py
+
+  You should see:
+    ✓ Previous data loaded: X slots · Revenue: ₹Y · History: Z records
+    Smart Parking System running at → http://localhost:5000
+     * Running on http://127.0.0.1:5000
+
+  If no previous data exists, it will start fresh with the setup modal.
+
+  If you have multiple Python versions, use:
+    python3 app.py
+
+
+STEP 6 — OPEN IN BROWSER
+─────────────────────────
+  Open your browser and go to:
+    http://localhost:5000
+
+  Recommended browsers:
+    • Chrome (best OCR camera support)
+    • Firefox
+    • Safari (desktop and mobile)
+
+  For mobile testing, find your Mac's local IP address:
+    System Preferences → Network → Wi-Fi → IP Address (e.g. 192.168.1.5)
+  Then open on your phone:
+    http://192.168.1.5:5000
+
+
+STEP 7 — CONFIGURE THE PARKING LOT
+─────────────────────────────────────
+  On first launch, the setup modal appears automatically.
+
+  1. Choose SINGLE FLOOR or MULTI-FLOOR mode
+  2. Add rows and set the number of slots per row (1–20 slots, up to 26 rows)
+  3. Optionally upload a floor plan image (PNG/JPG/WEBP/GIF, max 10MB)
+  4. Click CREATE PARKING LOT
+
+
+USING THE SYSTEM
+────────────────
+  PARK A VEHICLE
+    • Enter the vehicle number manually (format: AA00AA0000, e.g. TS09AB1234)
+    • Or tap the 📷 button to scan with the camera
+    • Select vehicle type: Car (₹30/hr) · Bike (₹15/hr) · Truck (₹60/hr)
+    • Choose Auto-Assign or pick a specific slot
+    • Click PARK VEHICLE — a ticket receipt is shown
+
+  EXIT A VEHICLE
+    • Enter the Ticket ID (from the entry receipt) or the vehicle plate number
+    • Or tap 📷 to scan the plate
+    • Click PROCESS EXIT — a billing receipt is shown with the fee
+
+  VIEW ANALYTICS
+    • Click 📊 ANALYTICS in the header
+    • See today's vehicle count, average stay, peak hour, revenue breakdown
+    • Search history by plate number
+    • Export history or revenue summary as CSV
+
+  BLUEPRINT IMAGE MODE
+    • After setup, click 🖼 MAP in the blueprint panel (only if image was uploaded)
+    • Drag slot markers to match real-world positions
+    • Click 💾 SAVE POSITIONS to persist the layout
+
+  RESET THE SYSTEM
+    • Click ⚙ RESET in the header
+    • Enter PIN: 0000 (default)
+    • All data and the uploaded blueprint image are cleared
+
+
+ADMIN PIN
+─────────
+  Default PIN: 0000
+  Used for the system reset action.
+  To change it, edit the following line in static/js/app.js:
+    if (pin !== '0000') {
+  Replace '0000' with your preferred 4-digit PIN.
+
+
+DATA PERSISTENCE
+────────────────
+  All parking data is stored in:
+    data/parking_data.json
+
+  This file is created automatically on first setup.
+  It stores: slot layout · parked vehicles · queue · revenue ·
+             history · slot positions · floor configuration
+
+  To start completely fresh without using the Reset button:
+    1. Stop Flask (Ctrl+C)
+    2. Delete data/parking_data.json
+    3. Delete static/uploads/blueprint.png (if it exists)
+    4. Run python app.py again
+
+
+PROJECT STRUCTURE
+─────────────────
+  smart-parking-system/
+  ├── app.py                  Flask server — all 11 API routes
+  ├── requirements.txt        Python dependencies
+  ├── core/
+  │   ├── parking_lot.py      Core logic — slots, queue, stack, analytics
+  │   ├── billing.py          Fee calculation
+  │   ├── utils.py            Plate validation and OCR text cleaning
+  │   └── sensor.py           Sensor simulation (future use)
+  ├── models/
+  │   └── vehicle.py          Vehicle class with UUID ticket ID
+  ├── storage/
+  │   └── file_handler.py     JSON save and load
+  ├── data/
+  │   └── parking_data.json   Auto-generated data file
+  ├── templates/
+  │   └── index.html          Full single-page UI
+  └── static/
+      ├── css/style.css       Complete dark theme stylesheet
+      ├── js/app.js           All frontend logic
+      └── uploads/            Blueprint images (auto-created)
+
+
+TROUBLESHOOTING
+───────────────
+  Problem : Browser shows unstyled plain HTML
+  Fix     : Hard refresh — Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows)
+
+  Problem : Flask crashes on startup with ImportError
+  Fix     : Run: pip install -r requirements.txt
+
+  Problem : Camera does not open / permission denied
+  Fix     : Allow camera access in browser settings. Manual entry always works.
+
+  Problem : OCR detects wrong text
+  Fix     : Use the manual entry panel on the right side of the camera modal.
+            Good lighting and holding the plate steady improves accuracy.
+
+  Problem : Port 5000 already in use
+  Fix     : Either stop the other process using port 5000, or change the port
+            in app.py: app.run(debug=True, port=5001)
+
+  Problem : Blueprint image not showing after upload
+  Fix     : Make sure the static/uploads/ folder exists.
+            Run: mkdir -p static/uploads
+
+  Problem : Data lost after restart
+  Fix     : Make sure data/parking_data.json is not in .gitignore locally.
+            The file is auto-created — do not delete it while Flask is running.
+
+
+GITHUB REPOSITORY
+─────────────────
+  https://github.com/SREEHARSHITHREDDY/Smart-Parking-System-Stack-Queue
+
+═══════════════════════════════════════════════════════════
+  Smart Parking System v1.0 · C. Sree Harshith Reddy · April 2026
+═══════════════════════════════════════════════════════════
