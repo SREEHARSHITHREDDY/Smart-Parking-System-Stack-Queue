@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
 </head>
 <body>
 
@@ -106,8 +107,18 @@
   <div class="modal camera-modal-v2">
     <div class="modal-header">
       <div class="modal-icon">📷</div>
-      <h2>SCAN NUMBER PLATE</h2>
-      <p>Camera scans automatically — or type the number on the right</p>
+      <h2 id="cameraModalTitle">SCAN NUMBER PLATE</h2>
+      <p id="cameraModalSub">Camera scans automatically — or type the number on the right</p>
+    </div>
+
+    <!-- Mode tabs — OCR (default) or QR scan -->
+    <div class="cam-mode-tabs" id="camModeTabs">
+      <button class="cam-mode-tab active" id="tabOCR" onclick="switchCameraMode('ocr')">
+        📷 PLATE OCR
+      </button>
+      <button class="cam-mode-tab" id="tabQR" onclick="switchCameraMode('qr')">
+        ▣ QR CODE
+      </button>
     </div>
 
     <div class="camera-split">
@@ -146,6 +157,21 @@
         <!-- Use detected plate button -->
         <button class="btn-use-detected hidden" id="usePlateBtn" onclick="useCapturedPlate()">
           ✅ USE THIS PLATE
+        </button>
+
+        <!-- QR scan result strip (hidden in OCR mode) -->
+        <div class="qr-scan-strip hidden" id="qrScanStrip">
+          <div class="qr-strip-left">
+            <span class="qr-strip-label">QR DECODED</span>
+            <span class="qr-strip-ticket" id="qrDecodedTicket">—</span>
+          </div>
+          <div class="qr-strip-right">
+            <span class="qr-strip-status" id="qrScanStatus">Scanning for QR…</span>
+          </div>
+        </div>
+
+        <button class="btn-use-detected hidden" id="useTicketBtn" onclick="useScannedQR()">
+          ✅ USE THIS TICKET
         </button>
       </div>
 
@@ -333,7 +359,7 @@
             <input type="text" id="exitIdentifier"
                    placeholder="e.g. A1B2C3D4 or TS09AB1234"
                    oninput="this.value=this.value.toUpperCase()" />
-            <button class="btn-cam" onclick="openCamera('exit')" title="Scan with camera">📷</button>
+            <button class="btn-cam" onclick="openCamera('exit_qr')" title="Scan QR or plate">📷</button>
           </div>
         </div>
         <button class="btn-danger full" onclick="exitVehicle()">PROCESS EXIT</button>
