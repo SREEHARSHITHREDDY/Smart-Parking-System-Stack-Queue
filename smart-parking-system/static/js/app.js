@@ -969,7 +969,9 @@ function openCamera(mode) {
   cameraMode    = mode;
   capturedPlate = null;
   lastDetected  = null;
+  scannedTicket = null;
 
+  // Reset OCR UI
   setOcrStrip('—', 'Starting camera…', false);
   document.getElementById('usePlateBtn').classList.add('hidden');
   document.getElementById('manualPlateInput').value       = '';
@@ -978,9 +980,21 @@ function openCamera(mode) {
   document.getElementById('manualValidation').className   = 'manual-validation';
   document.getElementById('manualPlateInput').className   = 'manual-always-input';
   document.getElementById('ocrSuggestion').classList.add('hidden');
-  document.getElementById('cameraOverlay').classList.remove('hidden');
 
-  initOcrWorker();
+  // Reset QR UI
+  document.getElementById('qrScanStrip').classList.add('hidden');
+  document.getElementById('useTicketBtn').classList.add('hidden');
+  document.getElementById('qrDecodedTicket').textContent = '—';
+  document.getElementById('qrScanStatus').textContent    = 'Scanning for QR…';
+
+  // Set correct mode tab — exit_qr opens in QR tab
+  if (mode === 'exit_qr') {
+    _activateQRTab();
+  } else {
+    _activateOCRTab();
+  }
+
+  document.getElementById('cameraOverlay').classList.remove('hidden');
 
   navigator.mediaDevices.getUserMedia({
     video: {
@@ -994,7 +1008,12 @@ function openCamera(mode) {
     cameraStream = stream;
     const video  = document.getElementById('cameraFeed');
     video.srcObject = stream;
-    video.play().then(() => startAutoScan());
+    if (mode === 'exit_qr') {
+      video.play().then(() => startQRScanLoop());
+    } else {
+      initOcrWorker();
+      video.play().then(() => startAutoScan());
+    }
   })
   .catch(() => {
     setOcrStrip('CAMERA ERROR', 'Permission denied or not available', false);
@@ -1005,6 +1024,7 @@ function openCamera(mode) {
 
 function closeCamera() {
   stopAutoScan();
+  stopQRScanLoop();
   if (cameraStream) {
     cameraStream.getTracks().forEach(t => t.stop());
     cameraStream = null;
@@ -1012,7 +1032,8 @@ function closeCamera() {
   const video = document.getElementById('cameraFeed');
   if (video) video.srcObject = null;
   document.getElementById('cameraOverlay').classList.add('hidden');
-  lastDetected = null;
+  lastDetected  = null;
+  scannedTicket = null;
 }
 
 function startAutoScan() {
@@ -1398,3 +1419,174 @@ async function generateQRCode(ticketId) {
     console.warn('QR generation failed:', err);
   }
 }
+
+/* ══════════════════════════════════════════════════════════
+   v2.0 — QR SCANNER (Exit Gate)
+   8 new functions + 2 tab helpers
+══════════════════════════════════════════════════════════ */
+
+// ── TAB HELPERS ──────────────────────────────────────────
+
+function _activateOCRTab() {
+  document.getElementById('tabOCR').classList.add('active');
+  document.getElementById('tabQR').classList.remove('active');
+  document.getElementById('cameraModalTitle').textContent = 'SCAN NUMBER PLATE';
+  document.getElementById('cameraModalSub').textContent   = 'Camera scans automatically — or type the number on the right';
+  // Show OCR strip, hide QR strip
+  document.getElementById('ocrStrip').classList.remove('hidden');
+  document.getElementById('qrScanStrip').classList.add('hidden');
+  document.getElementById('useTicketBtn').classList.add('hidden');
+}
+
+function _activateQRTab() {
+  document.getElementById('tabQR').classList.add('active');
+  document.getElementById('tabOCR').classList.remove('active');
+  document.getElementById('cameraModalTitle').textContent = 'SCAN QR CODE';
+  document.getElementById('cameraModalSub').textContent   = 'Point camera at the QR code on the entry receipt';
+  // Show QR strip, hide OCR strip
+  document.getElementById('qrScanStrip').classList.remove('hidden');
+  document.getElementById('ocrStrip').classList.add('hidden');
+  document.getElementById('usePlateBtn').classList.add('hidden');
+}
+
+// ── SWITCH MODE (tab click) ───────────────────────────────
+
+function switchCameraMode(mode) {
+  if (mode === 'ocr') {
+    stopQRScanLoop();
+    _activateOCRTab();
+    cameraMode = (cameraMode === 'exit_qr') ? 'exit' : cameraMode;
+    // Restart OCR scan if stream is live
+    const video = document.getElementById('cameraFeed');
+    if (video && video.srcObject) {
+      initOcrWorker();
+      startAutoScan();
+    }
+  } else {
+    stopAutoScan();
+    _activateQRTab();
+    cameraMode = 'exit_qr';
+    scannedTicket = null;
+    document.getElementById('qrDecodedTicket').textContent = '—';
+    document.getElementById('qrScanStatus').textContent    = 'Scanning for QR…';
+    document.getElementById('useTicketBtn').classList.add('hidden');
+    // Start QR scan if stream is live
+    const video = document.getElementById('cameraFeed');
+    if (video && video.srcObject) {
+      startQRScanLoop();
+    }
+  }
+}
+
+// ── 1. startQRScanLoop ───────────────────────────────────
+
+function startQRScanLoop() {
+  stopQRScanLoop();
+  qrScanActive = true;
+  setBadgeScanning(true);
+  qrScanInterval = setInterval(() => {
+    if (qrScanActive) runQRScan();
+  }, 250);
+}
+
+// ── 2. stopQRScanLoop ────────────────────────────────────
+
+function stopQRScanLoop() {
+  qrScanActive = false;
+  if (qrScanInterval) {
+    clearInterval(qrScanInterval);
+    qrScanInterval = null;
+  }
+}
+
+// ── 3. runQRScan ─────────────────────────────────────────
+
+function runQRScan() {
+  const video = document.getElementById('cameraFeed');
+  if (!video || !video.srcObject || video.readyState < 2) return;
+
+  const canvas  = document.getElementById('cameraCanvas');
+  const ctx     = canvas.getContext('2d');
+  const w       = video.videoWidth  || 640;
+  const h       = video.videoHeight || 480;
+
+  canvas.width  = w;
+  canvas.height = h;
+  ctx.drawImage(video, 0, 0, w, h);
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+
+  try {
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: 'dontInvert'
+    });
+    if (code) {
+      onQRDetected(code);
+    }
+  } catch (e) {
+    // jsQR not loaded or frame error — fail silently
+    console.warn('QR scan error:', e);
+  }
+}
+
+// ── 4. onQRDetected ──────────────────────────────────────
+
+function onQRDetected(code) {
+  const raw = code.data.trim().toUpperCase();
+
+  if (!validateQRTicket(raw)) {
+    // QR found but not a valid ticket format — keep scanning
+    document.getElementById('qrScanStatus').textContent = 'Invalid QR — keep scanning…';
+    return;
+  }
+
+  showQRResult(raw);
+}
+
+// ── 5. validateQRTicket ──────────────────────────────────
+
+function validateQRTicket(id) {
+  return /^[A-Z0-9]{8}$/.test(id);
+}
+
+// ── 6. showQRResult ──────────────────────────────────────
+
+function showQRResult(ticketId) {
+  scannedTicket = ticketId;
+
+  // Stop scanning — we have a valid result
+  stopQRScanLoop();
+  setBadgeScanning(false);
+
+  // Update QR strip
+  const strip = document.getElementById('qrScanStrip');
+  strip.classList.remove('hidden');
+  strip.classList.add('qr-detected');
+
+  document.getElementById('qrDecodedTicket').textContent = ticketId;
+  document.getElementById('qrScanStatus').textContent    = 'Valid ticket found';
+
+  // Show USE button
+  document.getElementById('useTicketBtn').classList.remove('hidden');
+
+  showToast('QR scanned: ' + ticketId, 'success');
+}
+
+// ── 7. useScannedQR ──────────────────────────────────────
+
+function useScannedQR() {
+  if (!scannedTicket) return;
+
+  // Fill exit form identifier input with scanned ticket ID
+  document.getElementById('exitIdentifier').value = scannedTicket;
+
+  // Close camera and process exit immediately
+  closeCamera();
+  exitVehicle();
+}
+
+// ── 8. Exit form camera button now opens QR mode by default ──
+
+// Override: exit camera button opens QR scanner directly
+// The park camera button still opens OCR mode
+// Both modes are always switchable via tabs inside the modal
