@@ -1841,3 +1841,102 @@
     font-size: 7pt;
   }
 }
+/* ═══════════════════════════════════════════
+   v2.0 — QR SCANNER STYLES (Day 16)
+   Append to bottom of style.css
+═══════════════════════════════════════════ */
+
+/* ── CAMERA MODE TABS ────────────────────── */
+.cam-mode-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 28px 12px;
+  background: var(--bg-card);
+}
+
+.cam-mode-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-lo);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: var(--t);
+}
+
+.cam-mode-tab:hover {
+  border-color: var(--border-lit);
+  color: var(--text-mid);
+}
+
+.cam-mode-tab.active {
+  background: var(--purple-soft);
+  border-color: var(--purple);
+  color: var(--purple);
+  box-shadow: 0 0 10px var(--purple-glow);
+}
+
+/* ── QR SCAN STRIP ───────────────────────── */
+.qr-scan-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  margin-top: 8px;
+  transition: var(--t);
+}
+
+.qr-scan-strip.qr-detected {
+  border-color: var(--green);
+  background: rgba(0, 212, 138, 0.08);
+  box-shadow: 0 0 12px rgba(0, 212, 138, 0.2);
+}
+
+.qr-strip-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.qr-strip-label {
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  color: var(--text-lo);
+  text-transform: uppercase;
+}
+
+.qr-strip-ticket {
+  font-family: var(--font-data);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-hi);
+  letter-spacing: 0.12em;
+}
+
+.qr-scan-strip.qr-detected .qr-strip-ticket {
+  color: var(--green);
+  text-shadow: 0 0 10px rgba(0, 212, 138, 0.4);
+}
+
+.qr-strip-right {
+  text-align: right;
+}
+
+.qr-strip-status {
+  font-family: var(--font-data);
+  font-size: 0.65rem;
+  color: var(--text-lo);
+}
+
+.qr-scan-strip.qr-detected .qr-strip-status {
+  color: var(--green);
+}
