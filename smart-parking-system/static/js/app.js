@@ -1,7 +1,6 @@
 /* ═══════════════════════════════════════════════════════════
-   SMART PARKING SYSTEM — app.js  v4
+   SMART PARKING SYSTEM — app.js  v5  (v2.0 QR Complete)
    Author: C. Sree Harshith Reddy
-   Includes: single floor, multi-floor, slot picker
 ═══════════════════════════════════════════════════════════ */
 
 /* ── STATE ───────────────────────────────────────────────── */
@@ -16,9 +15,19 @@ let latestLayout    = {};
 let latestConfig    = [];
 let latestFloorCfg  = null;
 let isMultiFloor    = false;
-let floorMode       = 'single';        // setup modal state
-let activeFloorTab  = null;            // blueprint tab
-let pickerFloorTab  = null;            // picker floor tab
+let floorMode       = 'single';
+let activeFloorTab  = null;
+let pickerFloorTab  = null;
+
+/* ── v2.0 QR STATE (declared at top — fixes ReferenceError) */
+let qrScanInterval  = null;
+let qrScanActive    = false;
+let scannedTicket   = null;
+
+/* ── CAMERA OCR STATE ────────────────────────────────────── */
+let scanInterval    = null;
+let lastDetected    = null;
+let scanCooldown    = false;
 
 /* ── INIT ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -55,15 +64,15 @@ function setFloorMode(mode) {
 /* ══════════════════════════════════════════════════════════
    SINGLE-FLOOR ROW BUILDER
 ══════════════════════════════════════════════════════════ */
-function addRow(builderId, btnLabel) {
-  const bId    = builderId || 'rowBuilder';
+function addRow(builderId) {
+  const bId     = builderId || 'rowBuilder';
   const builder = document.getElementById(bId);
   const rowCount = builder.children.length;
   if (rowCount >= 26) { showToast('Maximum 26 rows allowed', 'error'); return; }
 
   const rowLetter = String.fromCharCode(65 + rowCount);
   const div = document.createElement('div');
-  div.className  = 'row-item';
+  div.className   = 'row-item';
   div.dataset.row = rowLetter;
   div.innerHTML = `
     <span class="row-label">ROW ${rowLetter}</span>
@@ -121,7 +130,7 @@ function addFloor() {
   floorCount++;
   const fid  = `floor_${floorCount}`;
   const card = document.createElement('div');
-  card.className  = 'floor-card';
+  card.className   = 'floor-card';
   card.dataset.fid = fid;
 
   const defaultNames = ['Ground', '1st Floor', '2nd Floor', '3rd Floor', 'Basement',
@@ -142,7 +151,7 @@ function addFloor() {
     </div>
   `;
   builder.appendChild(card);
-  addFloorRow(fid);   // start with one row
+  addFloorRow(fid);
   renumberFloorCards();
   updatePreview();
 }
@@ -156,7 +165,7 @@ function addFloorRow(fid) {
 
   const letter = String.fromCharCode(65 + rowCount);
   const div    = document.createElement('div');
-  div.className  = 'floor-row-item row-item';
+  div.className   = 'floor-row-item row-item';
   div.dataset.row = letter;
   div.innerHTML = `
     <span class="row-label">ROW ${letter}</span>
@@ -196,19 +205,19 @@ function renumberFloorCards() {
 }
 
 function getFloorConfig() {
-  const cards = document.querySelectorAll('.floor-card');
+  const cards  = document.querySelectorAll('.floor-card');
   const result = [];
   cards.forEach(card => {
-    const fid   = card.dataset.fid;
-    const name  = card.querySelector('.floor-name-input').value.trim() || `Floor ${result.length + 1}`;
-    const rows  = getRowConfigFromBuilder(`rows_${fid}`);
+    const fid  = card.dataset.fid;
+    const name = card.querySelector('.floor-name-input').value.trim() || `Floor ${result.length + 1}`;
+    const rows = getRowConfigFromBuilder(`rows_${fid}`);
     result.push({ name, rows });
   });
   return result;
 }
 
 /* ══════════════════════════════════════════════════════════
-   PREVIEW (works for both modes)
+   PREVIEW
 ══════════════════════════════════════════════════════════ */
 function updatePreview() {
   const grid  = document.getElementById('previewGrid');
@@ -232,17 +241,14 @@ function updatePreview() {
     });
     const total = config.reduce((a, b) => a + b, 0);
     stats.innerHTML = `<span>${config.length}</span> rows · <span>${total}</span> total slots`;
-
   } else {
     const floors = getFloorConfig();
     let   total  = 0;
     floors.forEach(floor => {
-      // Floor label
       const floorLabel = document.createElement('div');
       floorLabel.style.cssText = `font-family:var(--font-display);font-size:0.58rem;color:var(--gold);margin:6px 0 4px;letter-spacing:0.08em;`;
       floorLabel.textContent   = `▸ ${floor.name}`;
       grid.appendChild(floorLabel);
-
       floor.rows.forEach((slots, i) => {
         const letter = String.fromCharCode(65 + i);
         const row    = document.createElement('div');
@@ -291,7 +297,6 @@ async function submitSetup() {
       body: JSON.stringify(body)
     });
     const data = await res.json();
-
     if (data.success) {
       document.getElementById('setupOverlay').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
@@ -340,23 +345,19 @@ function applyStatus(data) {
   latestFloorCfg = data.floor_config;
   isMultiFloor   = data.multi_floor || false;
 
-  // Header stats
   document.getElementById('hstatCapacity').querySelector('.hstat-val').textContent = stats.capacity;
   document.getElementById('hstatOccupied').querySelector('.hstat-val').textContent = stats.occupied;
   document.getElementById('hstatEmpty').querySelector('.hstat-val').textContent    = stats.empty;
   document.getElementById('hstatQueue').querySelector('.hstat-val').textContent    = stats.queue_length;
 
-  // Occupancy bar
   const pct  = stats.occupancy_pct;
   const fill = document.getElementById('occBarFill');
   fill.style.width = pct + '%';
   fill.className   = 'occ-bar-fill' + (pct >= 85 ? ' full' : pct >= 60 ? ' warn' : '');
   document.getElementById('occBarLabel').textContent = Math.round(pct) + '% OCCUPIED';
 
-  // Revenue
   document.getElementById('revenueAmount').textContent = '₹' + data.revenue.toFixed(0);
 
-  // Multi-floor UI updates
   if (isMultiFloor && latestFloorCfg) {
     setupFloorTabs(latestFloorCfg, data.floor_stats);
     setupFloorPrefSelect(latestFloorCfg);
@@ -368,16 +369,13 @@ function applyStatus(data) {
     document.getElementById('floorPrefGroup').classList.add('hidden');
   }
 
-  // Blueprint
   renderBlueprint(data.row_config, data.layout, data.floor_config);
   renderQueue(data.queue);
 
-  // Refresh picker if open
   if (!document.getElementById('slotPickerOverlay').classList.contains('hidden')) {
     renderSlotPickerForFloor(pickerFloorTab);
   }
 
-  // Invalidate chosen slot if taken
   if (chosenSlot && latestLayout[chosenSlot] && latestLayout[chosenSlot].status === 'occupied') {
     clearChosenSlot();
     showToast(`Slot ${chosenSlot} was just taken — please choose again`, 'error');
@@ -385,35 +383,30 @@ function applyStatus(data) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   FLOOR TABS (blueprint)
+   FLOOR TABS
 ══════════════════════════════════════════════════════════ */
 function setupFloorTabs(floorCfg, floorStats) {
-  const tabBar = document.getElementById('floorTabs');
+  const tabBar  = document.getElementById('floorTabs');
   tabBar.classList.remove('hidden');
-
-  // Only rebuild if floor count changed
   const existing = tabBar.querySelectorAll('.floor-tab');
   if (existing.length === floorCfg.length) {
-    // Just update occupancy text
     floorCfg.forEach((fl, i) => {
-      const fs = floorStats ? floorStats[i] : null;
+      const fs  = floorStats ? floorStats[i] : null;
       const occ = existing[i].querySelector('.tab-occ');
       if (occ && fs) occ.textContent = `${fs.occupied}/${fs.capacity}`;
     });
     return;
   }
-
   tabBar.innerHTML = '';
   floorCfg.forEach((fl, i) => {
     const fs  = floorStats ? floorStats[i] : null;
     const tab = document.createElement('button');
-    tab.className   = 'floor-tab' + (i === 0 ? ' active' : '');
+    tab.className     = 'floor-tab' + (i === 0 ? ' active' : '');
     tab.dataset.floor = fl.name;
-    tab.innerHTML   = `${fl.name}<span class="tab-occ">${fs ? `${fs.occupied}/${fs.capacity}` : ''}</span>`;
-    tab.onclick     = () => switchFloorTab(fl.name);
+    tab.innerHTML     = `${fl.name}<span class="tab-occ">${fs ? `${fs.occupied}/${fs.capacity}` : ''}</span>`;
+    tab.onclick       = () => switchFloorTab(fl.name);
     tabBar.appendChild(tab);
   });
-
   if (!activeFloorTab) activeFloorTab = floorCfg[0].name;
 }
 
@@ -425,15 +418,11 @@ function switchFloorTab(floorName) {
   renderBlueprint(latestConfig, latestLayout, latestFloorCfg);
 }
 
-/* ══════════════════════════════════════════════════════════
-   FLOOR SUMMARY BAR
-══════════════════════════════════════════════════════════ */
 function updateFloorSummary(floorStats) {
   if (!floorStats) return;
   const bar = document.getElementById('floorSummary');
   bar.classList.remove('hidden');
   bar.innerHTML = '';
-
   floorStats.forEach(fs => {
     const pct  = fs.capacity > 0 ? Math.round((fs.occupied / fs.capacity) * 100) : 0;
     const card = document.createElement('div');
@@ -441,8 +430,7 @@ function updateFloorSummary(floorStats) {
     card.innerHTML = `
       <div class="fsc-name">${fs.name}</div>
       <div class="fsc-bar-wrap">
-        <div class="fsc-bar-fill ${pct >= 85 ? 'full' : pct >= 60 ? 'warn' : ''}"
-             style="width:${pct}%"></div>
+        <div class="fsc-bar-fill ${pct >= 85 ? 'full' : pct >= 60 ? 'warn' : ''}" style="width:${pct}%"></div>
       </div>
       <div class="fsc-nums"><span>${fs.empty}</span> free · <span>${fs.occupied}</span> used</div>
     `;
@@ -450,17 +438,13 @@ function updateFloorSummary(floorStats) {
   });
 }
 
-/* ══════════════════════════════════════════════════════════
-   FLOOR PREFERENCE SELECT
-══════════════════════════════════════════════════════════ */
 function setupFloorPrefSelect(floorCfg) {
   const sel = document.getElementById('floorPrefSelect');
-  if (sel.options.length === floorCfg.length + 1) return; // already built
-
+  if (sel.options.length === floorCfg.length + 1) return;
   sel.innerHTML = '<option value="">Any floor (auto-assign)</option>';
   floorCfg.forEach(fl => {
-    const opt    = document.createElement('option');
-    opt.value    = fl.name;
+    const opt       = document.createElement('option');
+    opt.value       = fl.name;
     opt.textContent = fl.name;
     sel.appendChild(opt);
   });
@@ -477,40 +461,31 @@ function renderBlueprint(rowConfig, layout, floorCfg) {
     const targetFloor = activeFloorTab || floorCfg[0].name;
     const floor       = floorCfg.find(f => f.name === targetFloor);
     if (!floor) return;
-
     floor.rows.forEach((slotCount, ri) => {
       const letter = String.fromCharCode(65 + ri);
       const row    = document.createElement('div');
       row.className = 'blueprint-row';
-
       const tag = document.createElement('span');
       tag.className   = 'row-tag';
       tag.textContent = letter;
       row.appendChild(tag);
-
       for (let ci = 0; ci < slotCount; ci++) {
         const slotId   = `${targetFloor}-${letter}${ci + 1}`;
         const slotData = layout[slotId];
         const occupied = slotData && slotData.status === 'occupied';
-
-        const cell = buildSlotCell(slotId, occupied, slotData);
-        row.appendChild(cell);
+        row.appendChild(buildSlotCell(slotId, occupied, slotData));
       }
       grid.appendChild(row);
     });
-
   } else {
-    // Single floor
     rowConfig.forEach((slotCount, ri) => {
       const letter = String.fromCharCode(65 + ri);
       const row    = document.createElement('div');
       row.className = 'blueprint-row';
-
       const tag = document.createElement('span');
       tag.className   = 'row-tag';
       tag.textContent = letter;
       row.appendChild(tag);
-
       for (let ci = 0; ci < slotCount; ci++) {
         const slotId   = `${letter}${ci + 1}`;
         const slotData = layout[slotId];
@@ -528,18 +503,13 @@ function buildSlotCell(slotId, occupied, slotData) {
   cell.title     = occupied
     ? `${slotId} — ${slotData.vehicle.number_plate} — click for details`
     : `${slotId} — Available — click to park here`;
-
-  // Click opens popup
   cell.onclick = () => openSlotPopup(slotId);
-
-  const idSpan    = document.createElement('span');
+  const idSpan       = document.createElement('span');
   idSpan.className   = 'slot-id';
   idSpan.textContent = slotId.includes('-') ? slotId.split('-')[1] : slotId;
-
-  const plateSpan    = document.createElement('span');
+  const plateSpan       = document.createElement('span');
   plateSpan.className   = 'slot-plate';
   plateSpan.textContent = occupied ? slotData.vehicle.number_plate : '';
-
   cell.appendChild(idSpan);
   cell.appendChild(plateSpan);
   return cell;
@@ -552,7 +522,6 @@ function renderQueue(queue) {
   const list  = document.getElementById('queueList');
   const badge = document.getElementById('queueCount');
   badge.textContent = queue.length;
-
   if (!queue.length) {
     list.innerHTML = '<div class="empty-state">No vehicles waiting</div>';
     return;
@@ -571,7 +540,7 @@ function renderQueue(queue) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   VEHICLE TYPE
+   VEHICLE TYPE + ASSIGN MODE
 ══════════════════════════════════════════════════════════ */
 function selectType(btn) {
   document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
@@ -579,19 +548,21 @@ function selectType(btn) {
   selectedType = btn.dataset.type;
 }
 
-/* ══════════════════════════════════════════════════════════
-   ASSIGN MODE
-══════════════════════════════════════════════════════════ */
 function setAssignMode(mode) {
   assignMode = mode;
   document.getElementById('assignAuto').classList.toggle('active',   mode === 'auto');
   document.getElementById('assignManual').classList.toggle('active', mode === 'manual');
-
   if (mode === 'auto') {
     clearChosenSlot();
   } else {
     openSlotPicker();
   }
+}
+
+function setAssignModeQuiet(mode) {
+  assignMode = mode;
+  document.getElementById('assignAuto').classList.toggle('active',   mode === 'auto');
+  document.getElementById('assignManual').classList.toggle('active', mode === 'manual');
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -603,17 +574,16 @@ function openSlotPicker() {
   document.getElementById('spiSlot').textContent  = chosenSlot || 'NONE';
   document.getElementById('confirmSlotBtn').disabled = !chosenSlot;
 
-  // Setup picker floor tabs if multi-floor
   const tabsEl = document.getElementById('pickerFloorTabs');
   if (isMultiFloor && latestFloorCfg) {
     tabsEl.classList.remove('hidden');
     tabsEl.innerHTML = '';
     latestFloorCfg.forEach((fl, i) => {
       const tab = document.createElement('button');
-      tab.className    = 'picker-floor-tab' + (i === 0 ? ' active' : '');
+      tab.className     = 'picker-floor-tab' + (i === 0 ? ' active' : '');
       tab.dataset.floor = fl.name;
-      tab.textContent  = fl.name;
-      tab.onclick      = () => switchPickerFloor(fl.name);
+      tab.textContent   = fl.name;
+      tab.onclick       = () => switchPickerFloor(fl.name);
       tabsEl.appendChild(tab);
     });
     pickerFloorTab = latestFloorCfg[0].name;
@@ -637,7 +607,6 @@ function switchPickerFloor(floorName) {
 function renderSlotPickerForFloor(floorName) {
   const grid = document.getElementById('slotPickerGrid');
   grid.innerHTML = '';
-
   if (isMultiFloor && latestFloorCfg && floorName) {
     const floor = latestFloorCfg.find(f => f.name === floorName);
     if (!floor) return;
@@ -656,7 +625,6 @@ function renderSlotPickerForFloor(floorName) {
       grid.appendChild(row);
     });
   } else {
-    // Single floor
     latestConfig.forEach((slotCount, ri) => {
       const letter = String.fromCharCode(65 + ri);
       const row    = document.createElement('div');
@@ -678,21 +646,15 @@ function buildPickerCell(slotId) {
   const slotData = latestLayout[slotId];
   const occupied = slotData && slotData.status === 'occupied';
   const isChosen = slotId === chosenSlot;
-
   const cell = document.createElement('div');
   cell.className = occupied ? 'sp-cell taken' : isChosen ? 'sp-cell selected' : 'sp-cell available';
-
-  // Show short ID (strip floor prefix for display)
-  const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
-
-  const idEl    = document.createElement('span');
-  idEl.className   = 'sp-id';
-  idEl.textContent = displayId;
-
-  const plateEl    = document.createElement('span');
-  plateEl.className   = 'sp-plate';
-  plateEl.textContent = occupied ? slotData.vehicle.number_plate : 'FREE';
-
+  const displayId       = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+  const idEl            = document.createElement('span');
+  idEl.className        = 'sp-id';
+  idEl.textContent      = displayId;
+  const plateEl         = document.createElement('span');
+  plateEl.className     = 'sp-plate';
+  plateEl.textContent   = occupied ? slotData.vehicle.number_plate : 'FREE';
   cell.appendChild(idEl);
   cell.appendChild(plateEl);
   if (!occupied) cell.onclick = () => selectPickerSlot(slotId);
@@ -734,14 +696,14 @@ function clearChosenSlot() {
    PARK VEHICLE
 ══════════════════════════════════════════════════════════ */
 async function parkVehicle() {
-  const plate  = document.getElementById('parkPlate').value.trim().toUpperCase();
-  const msgEl  = document.getElementById('parkMsg');
+  const plate = document.getElementById('parkPlate').value.trim().toUpperCase();
+  const msgEl = document.getElementById('parkMsg');
   msgEl.textContent = '';
   msgEl.className   = 'form-msg';
 
   if (!plate) { setMsg(msgEl, 'Please enter a vehicle number.', 'error'); return; }
 
-  const plateRegex = /^[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}$/;
+  const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
   if (!plateRegex.test(plate)) {
     setMsg(msgEl, 'Invalid format. Use: AA00AA0000 (e.g. TS09AB1234)', 'error');
     return;
@@ -753,7 +715,6 @@ async function parkVehicle() {
   }
 
   const body = { number_plate: plate, vehicle_type: selectedType };
-
   if (assignMode === 'manual' && chosenSlot) {
     body.preferred_slot = chosenSlot;
   } else if (isMultiFloor) {
@@ -767,7 +728,6 @@ async function parkVehicle() {
       body: JSON.stringify(body)
     });
     const data = await res.json();
-
     if (!data.success) { setMsg(msgEl, data.message, 'error'); return; }
 
     document.getElementById('parkPlate').value = '';
@@ -790,12 +750,6 @@ async function parkVehicle() {
   } catch (e) { setMsg(msgEl, 'Server error. Try again.', 'error'); }
 }
 
-function setAssignModeQuiet(mode) {
-  assignMode = mode;
-  document.getElementById('assignAuto').classList.toggle('active',   mode === 'auto');
-  document.getElementById('assignManual').classList.toggle('active', mode === 'manual');
-}
-
 /* ══════════════════════════════════════════════════════════
    EXIT VEHICLE
 ══════════════════════════════════════════════════════════ */
@@ -813,7 +767,6 @@ async function exitVehicle() {
       body: JSON.stringify({ identifier })
     });
     const data = await res.json();
-
     if (!data.success) { setMsg(msgEl, data.message, 'error'); return; }
 
     document.getElementById('exitIdentifier').value = '';
@@ -859,7 +812,6 @@ function showEntryReceipt(data, queued) {
       <span class="r-value">${data.entry_time}</span>
     </div>`}
   `;
-  // v2 — show QR section for non-queued entries
   if (!queued && data.qr_data) {
     document.getElementById('qrReceiptSection').classList.remove('hidden');
     document.getElementById('qrTicketText').textContent = data.ticket_id;
@@ -873,42 +825,19 @@ function showEntryReceipt(data, queued) {
 function showExitReceipt(data) {
   document.getElementById('receiptIcon').textContent  = '💳';
   document.getElementById('receiptTitle').textContent = 'EXIT RECEIPT';
-
   const entry    = new Date(`1970-01-01T${data.entry_time}`);
   const exitT    = new Date(`1970-01-01T${data.exit_time}`);
   let   diffMins = Math.round((exitT - entry) / 60000);
   if (diffMins < 0) diffMins += 24 * 60;
   const durStr   = diffMins < 60 ? `${diffMins} min` : `${Math.floor(diffMins/60)}h ${diffMins%60}m`;
-
   document.getElementById('receiptBody').innerHTML = `
-    <div class="receipt-row">
-      <span class="r-label">Vehicle Number</span>
-      <span class="r-value">${data.number_plate}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Vehicle Type</span>
-      <span class="r-value">${data.vehicle_type.toUpperCase()}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Slot</span>
-      <span class="r-value">${data.slot}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Entry Time</span>
-      <span class="r-value">${data.entry_time}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Exit Time</span>
-      <span class="r-value">${data.exit_time}</span>
-    </div>
-    <div class="receipt-row">
-      <span class="r-label">Duration</span>
-      <span class="r-value">${durStr}</span>
-    </div>
-    <div class="receipt-row total">
-      <span class="r-label">AMOUNT CHARGED</span>
-      <span class="r-value">₹${data.fee}</span>
-    </div>
+    <div class="receipt-row"><span class="r-label">Vehicle Number</span><span class="r-value">${data.number_plate}</span></div>
+    <div class="receipt-row"><span class="r-label">Vehicle Type</span><span class="r-value">${data.vehicle_type.toUpperCase()}</span></div>
+    <div class="receipt-row"><span class="r-label">Slot</span><span class="r-value">${data.slot}</span></div>
+    <div class="receipt-row"><span class="r-label">Entry Time</span><span class="r-value">${data.entry_time}</span></div>
+    <div class="receipt-row"><span class="r-label">Exit Time</span><span class="r-value">${data.exit_time}</span></div>
+    <div class="receipt-row"><span class="r-label">Duration</span><span class="r-value">${durStr}</span></div>
+    <div class="receipt-row total"><span class="r-label">AMOUNT CHARGED</span><span class="r-value">₹${data.fee}</span></div>
   `;
   document.getElementById('receiptOverlay').classList.remove('hidden');
 }
@@ -916,31 +845,123 @@ function showExitReceipt(data) {
 function closeReceipt() { document.getElementById('receiptOverlay').classList.add('hidden'); }
 function printReceipt() { window.print(); }
 
-/* ── STATE ─ (keep everything above this unchanged) ── */
+/* ══════════════════════════════════════════════════════════
+   RESET
+══════════════════════════════════════════════════════════ */
+async function confirmReset() {
+  const pin = prompt('Enter admin PIN to reset (default: 0000)');
+  if (pin === null) return;
+  if (pin !== '0000') { showToast('Incorrect PIN', 'error'); return; }
+  try {
+    const res  = await fetch('/api/reset', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      document.getElementById('app').classList.add('hidden');
+      document.getElementById('setupOverlay').classList.remove('hidden');
+      document.getElementById('rowBuilder').innerHTML   = '';
+      document.getElementById('floorBuilder').innerHTML = '';
+      floorCount     = 0;
+      floorMode      = 'single';
+      activeFloorTab = null;
+      pickerFloorTab = null;
+      isMultiFloor   = false;
+      latestLayout   = {};
+      latestConfig   = [];
+      latestFloorCfg = null;
+      clearChosenSlot();
+      setFloorMode('single');
+      addRow();
+      showToast('System reset', 'info');
+    }
+  } catch (e) { showToast('Reset failed', 'error'); }
+}
 
 /* ══════════════════════════════════════════════════════════
-   CAMERA — Stage 2.1 + Plate Format Fix
-   Auto-scan, side-by-side, all Indian plate formats
+   SLOT POPUP
 ══════════════════════════════════════════════════════════ */
+let popupSlotId      = null;
+let popupVehicle     = null;
+let durationInterval = null;
+const RATES = { car: 30, bike: 15, truck: 60 };
 
-let scanInterval    = null;
-let lastDetected    = null;
-let scanCooldown    = false;
+function openSlotPopup(slotId) {
+  const slotData = latestLayout[slotId];
+  const occupied = slotData && slotData.status === 'occupied';
+  popupSlotId  = slotId;
+  popupVehicle = occupied ? slotData.vehicle : null;
+  document.getElementById('popupOccupied').style.display = occupied ? 'block' : 'none';
+  document.getElementById('popupEmpty').style.display    = occupied ? 'none'  : 'block';
+  if (occupied) {
+    const v = slotData.vehicle;
+    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+    document.getElementById('popupSlotId').textContent = displayId;
+    document.getElementById('popupPlate').textContent  = v.number_plate;
+    document.getElementById('popupType').textContent   = v.vehicle_type.toUpperCase();
+    document.getElementById('popupTicket').textContent = v.ticket_id;
+    const entryStr = v.entry_time.includes('T') ? v.entry_time.split('T')[1].slice(0, 8) : v.entry_time;
+    document.getElementById('popupEntry').textContent = entryStr;
+    if (durationInterval) clearInterval(durationInterval);
+    function updateDuration() {
+      const entryDate = new Date(v.entry_time);
+      const now       = new Date();
+      let   diffMins  = Math.floor((now - entryDate) / 60000);
+      if (diffMins < 0) diffMins = 0;
+      const hrs    = Math.floor(diffMins / 60);
+      const mins   = diffMins % 60;
+      document.getElementById('popupDuration').textContent = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+      const rate      = RATES[v.vehicle_type] || 30;
+      const billHours = Math.max(1, Math.ceil(diffMins / 60));
+      document.getElementById('popupFee').textContent = `₹${billHours * rate}`;
+    }
+    updateDuration();
+    durationInterval = setInterval(updateDuration, 30000);
+  } else {
+    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
+    document.getElementById('popupEmptySlotId').textContent = displayId;
+  }
+  document.getElementById('slotPopupOverlay').classList.remove('hidden');
+}
 
-// ── PLATE MATCHING ────────────────────────
-// Matches all Indian formats:
-// TS09AB1234, TN33J1364, MH12ABC1234
+function closeSlotPopup(event) {
+  if (event && event.target !== document.getElementById('slotPopupOverlay')) return;
+  if (durationInterval) { clearInterval(durationInterval); durationInterval = null; }
+  document.getElementById('slotPopupOverlay').classList.add('hidden');
+  popupSlotId  = null;
+  popupVehicle = null;
+}
+
+function quickExit() {
+  if (!popupVehicle) return;
+  document.getElementById('exitIdentifier').value = popupVehicle.number_plate;
+  closeSlotPopup();
+  showToast(`Ready to exit ${popupVehicle.number_plate}`, 'info');
+  document.getElementById('exitIdentifier').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('exitIdentifier').focus();
+}
+
+function quickPark() {
+  if (!popupSlotId) return;
+  chosenSlot = popupSlotId;
+  document.getElementById('chosenSlotValue').textContent = popupSlotId;
+  document.getElementById('chosenSlotDisplay').classList.remove('hidden');
+  setAssignModeQuiet('manual');
+  closeSlotPopup();
+  showToast(`Slot ${popupSlotId} pre-selected`, 'info');
+  document.getElementById('parkPlate').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  document.getElementById('parkPlate').focus();
+}
+
+/* ══════════════════════════════════════════════════════════
+   CAMERA — OCR FUNCTIONS
+══════════════════════════════════════════════════════════ */
 const PLATE_REGEX = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}/;
-
-// Noise words printed on Indian plates
-const PLATE_NOISE = ['INDIA', 'IND', 'BHARAT', 'BH', 'HSRP',
-                     'INA', 'INIA', 'NDIA', 'INDO'];
+const PLATE_NOISE = ['INDIA', 'IND', 'BHARAT', 'BH', 'HSRP', 'INA', 'INIA', 'NDIA', 'INDO'];
 
 function cleanOcrText(raw) {
   let text = raw.toUpperCase().replace(/\s+/g, '');
   PLATE_NOISE.forEach(word => { text = text.split(word).join(''); });
-  text = text.replace(/[^A-Z0-9]/g, '');
-  return text;
+  return text.replace(/[^A-Z0-9]/g, '');
 }
 
 function extractBestPlate(raw) {
@@ -950,18 +971,15 @@ function extractBestPlate(raw) {
   return matches.reduce((a, b) => a.length >= b.length ? a : b);
 }
 
-// Tesseract worker reused across scans
 let ocrWorker = null;
 
 async function initOcrWorker() {
   if (ocrWorker) return;
-  ocrWorker = await Tesseract.createWorker('eng', 1, {
-    logger: () => {}
-  });
+  ocrWorker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
   await ocrWorker.setParameters({
     tessedit_char_whitelist:  'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-    tessedit_pageseg_mode:    '6',   // PSM 6 — block of text (better for multi-line plates)
-    tessedit_ocr_engine_mode: '1',   // OEM 1 — LSTM only
+    tessedit_pageseg_mode:    '6',
+    tessedit_ocr_engine_mode: '1',
   });
 }
 
@@ -971,7 +989,6 @@ function openCamera(mode) {
   lastDetected  = null;
   scannedTicket = null;
 
-  // Reset OCR UI
   setOcrStrip('—', 'Starting camera…', false);
   document.getElementById('usePlateBtn').classList.add('hidden');
   document.getElementById('manualPlateInput').value       = '';
@@ -981,13 +998,11 @@ function openCamera(mode) {
   document.getElementById('manualPlateInput').className   = 'manual-always-input';
   document.getElementById('ocrSuggestion').classList.add('hidden');
 
-  // Reset QR UI
   document.getElementById('qrScanStrip').classList.add('hidden');
   document.getElementById('useTicketBtn').classList.add('hidden');
   document.getElementById('qrDecodedTicket').textContent = '—';
   document.getElementById('qrScanStatus').textContent    = 'Scanning for QR…';
 
-  // Set correct mode tab — exit_qr opens in QR tab
   if (mode === 'exit_qr') {
     _activateQRTab();
   } else {
@@ -997,12 +1012,7 @@ function openCamera(mode) {
   document.getElementById('cameraOverlay').classList.remove('hidden');
 
   navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: { ideal: 'environment' },
-      width:      { ideal: 1280 },
-      height:     { ideal: 720 },
-      frameRate:  { ideal: 30 }
-    }
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
   })
   .then(stream => {
     cameraStream = stream;
@@ -1025,10 +1035,7 @@ function openCamera(mode) {
 function closeCamera() {
   stopAutoScan();
   stopQRScanLoop();
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(t => t.stop());
-    cameraStream = null;
-  }
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
   const video = document.getElementById('cameraFeed');
   if (video) video.srcObject = null;
   document.getElementById('cameraOverlay').classList.add('hidden');
@@ -1040,9 +1047,7 @@ function startAutoScan() {
   stopAutoScan();
   setOcrStrip('—', 'Scanning…', false);
   setBadgeScanning(true);
-  scanInterval = setInterval(() => {
-    if (!scanCooldown) runOcrScan();
-  }, 1800);
+  scanInterval = setInterval(() => { if (!scanCooldown) runOcrScan(); }, 1800);
   setTimeout(runOcrScan, 600);
 }
 
@@ -1055,323 +1060,114 @@ async function runOcrScan() {
   const video = document.getElementById('cameraFeed');
   if (!video || !video.srcObject || video.readyState < 2) return;
   if (scanCooldown) return;
-
   scanCooldown = true;
-
   try {
-    const vw = video.videoWidth  || 640;
-    const vh = video.videoHeight || 480;
-
-    // ── STEP 1: CAPTURE FULL FRAME ────────────────────────
+    const vw = video.videoWidth || 640, vh = video.videoHeight || 480;
     const fullCanvas = document.getElementById('cameraCanvas');
-    fullCanvas.width  = vw;
-    fullCanvas.height = vh;
-    const fullCtx = fullCanvas.getContext('2d');
-    fullCtx.drawImage(video, 0, 0, vw, vh);
-
-    // ── STEP 2: CROP CENTRE REGION ────────────────────────
-    // Plates are typically in the centre 80% width, middle 60% height
-    const cropX = Math.floor(vw * 0.10);
-    const cropY = Math.floor(vh * 0.25);
-    const cropW = Math.floor(vw * 0.80);
-    const cropH = Math.floor(vh * 0.50);
-
-    // Create processing canvas — upscale 2x for better OCR
-    const scale     = 2;
+    fullCanvas.width = vw; fullCanvas.height = vh;
+    fullCanvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
+    const cropX = Math.floor(vw * 0.10), cropY = Math.floor(vh * 0.25);
+    const cropW = Math.floor(vw * 0.80), cropH = Math.floor(vh * 0.50);
+    const scale = 2;
     const procCanvas = document.createElement('canvas');
-    procCanvas.width  = cropW * scale;
-    procCanvas.height = cropH * scale;
-    const procCtx = procCanvas.getContext('2d');
-
-    // Draw cropped + upscaled region
-    procCtx.drawImage(
-      fullCanvas,
-      cropX, cropY, cropW, cropH,        // source crop
-      0, 0, procCanvas.width, procCanvas.height  // dest (scaled up)
-    );
-
-    // ── STEP 3: PREPROCESS FOR OCR ────────────────────────
+    procCanvas.width = cropW * scale; procCanvas.height = cropH * scale;
+    procCanvas.getContext('2d').drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, procCanvas.width, procCanvas.height);
     const processedCanvas = applyPreprocessing(procCanvas);
-
-    // ── STEP 4: OCR ON PROCESSED IMAGE ───────────────────
     await initOcrWorker();
-    const result   = await ocrWorker.recognize(processedCanvas);
-    const rawFull  = result.data.text;
-    const conf     = Math.round(result.data.confidence);
-    let   plate    = extractBestPlate(rawFull);
-
-    // ── STEP 5: TRY INVERTED IF NO MATCH ─────────────────
-    // Handles dark/night plates (white bg → black text already done)
-    // Some plates: black bg + white text — invert helps
-    if (!plate) {
-      const invertedCanvas = applyPreprocessing(procCanvas, true);
-      const result2  = await ocrWorker.recognize(invertedCanvas);
-      const rawFull2 = result2.data.text;
-      plate = extractBestPlate(rawFull2);
-    }
-
-    // ── STEP 6: HANDLE RESULT ─────────────────────────────
+    const result  = await ocrWorker.recognize(processedCanvas);
+    const conf    = Math.round(result.data.confidence);
+    let   plate   = extractBestPlate(result.data.text);
+    if (!plate) { const r2 = await ocrWorker.recognize(applyPreprocessing(procCanvas, true)); plate = extractBestPlate(r2.data.text); }
     if (plate) {
-      lastDetected  = plate;
-      capturedPlate = plate;
-
+      lastDetected = plate; capturedPlate = plate;
       setOcrStrip(plate, `Confidence ${conf}%`, true);
       document.getElementById('ocrStrip').style.borderColor = 'var(--green)';
       document.getElementById('ocrSuggestion').classList.add('hidden');
       document.getElementById('usePlateBtn').classList.remove('hidden');
-
-      // Auto-fill manual input if empty
       const manualInput = document.getElementById('manualPlateInput');
-      if (!manualInput.value) {
-        manualInput.value = plate;
-        validateManualInput(manualInput);
-      }
-
-      stopAutoScan();
-      setBadgeScanning(false);
+      if (!manualInput.value) { manualInput.value = plate; validateManualInput(manualInput); }
+      stopAutoScan(); setBadgeScanning(false);
       showToast(`Plate detected: ${plate}`, 'success');
-
     } else {
-      const cleaned = cleanOcrText(rawFull);
+      const cleaned = cleanOcrText(result.data.text);
       setOcrStrip('NO PLATE DETECTED', `Conf ${conf}% — aim at plate`, false);
       document.getElementById('ocrStrip').style.borderColor = 'var(--border)';
       document.getElementById('usePlateBtn').classList.add('hidden');
-
-      if (cleaned.length >= 4) {
-        document.getElementById('suggestionBtn').textContent = cleaned.slice(0, 10);
-        document.getElementById('ocrSuggestion').classList.remove('hidden');
-      } else {
-        document.getElementById('ocrSuggestion').classList.add('hidden');
-      }
+      if (cleaned.length >= 4) { document.getElementById('suggestionBtn').textContent = cleaned.slice(0, 10); document.getElementById('ocrSuggestion').classList.remove('hidden'); }
+      else document.getElementById('ocrSuggestion').classList.add('hidden');
     }
-
-  } catch (e) {
-    setOcrStrip('SCAN ERROR', 'Retrying…', false);
-  } finally {
-    scanCooldown = false;
-  }
+  } catch (e) { setOcrStrip('SCAN ERROR', 'Retrying…', false); }
+  finally { scanCooldown = false; }
 }
-
-
-/* ══════════════════════════════════════════════════════════
-   IMAGE PREPROCESSING — Stage 2.2
-   Greyscale → Adaptive threshold → Optional invert
-══════════════════════════════════════════════════════════ */
 
 function applyPreprocessing(sourceCanvas, invert = false) {
-  const w   = sourceCanvas.width;
-  const h   = sourceCanvas.height;
-  const out = document.createElement('canvas');
-  out.width  = w;
-  out.height = h;
-  const ctx = out.getContext('2d');
-  ctx.drawImage(sourceCanvas, 0, 0);
-
-  const imageData = ctx.getImageData(0, 0, w, h);
-  const data      = imageData.data;
-
-  // ── 1. GREYSCALE ──────────────────────────
+  const w = sourceCanvas.width, h = sourceCanvas.height;
+  const out = document.createElement('canvas'); out.width = w; out.height = h;
+  const ctx = out.getContext('2d'); ctx.drawImage(sourceCanvas, 0, 0);
+  const imageData = ctx.getImageData(0, 0, w, h); const data = imageData.data;
   const grey = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    const r = data[i * 4];
-    const g = data[i * 4 + 1];
-    const b = data[i * 4 + 2];
-    grey[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-  }
-
-  // ── 2. GAUSSIAN BLUR (3x3) — reduce noise ─
-  const blurred = new Uint8Array(w * h);
-  const kernel  = [1,2,1, 2,4,2, 1,2,1];
-  const kSum    = 16;
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      let sum = 0;
-      let ki  = 0;
-      for (let ky = -1; ky <= 1; ky++) {
-        for (let kx = -1; kx <= 1; kx++) {
-          sum += grey[(y + ky) * w + (x + kx)] * kernel[ki++];
-        }
-      }
-      blurred[y * w + x] = sum / kSum;
-    }
-  }
-  // Fill edges
-  for (let x = 0; x < w; x++) {
-    blurred[x]             = grey[x];
-    blurred[(h-1)*w + x]   = grey[(h-1)*w + x];
-  }
-  for (let y = 0; y < h; y++) {
-    blurred[y * w]         = grey[y * w];
-    blurred[y * w + w - 1] = grey[y * w + w - 1];
-  }
-
-  // ── 3. ADAPTIVE THRESHOLD ─────────────────
-  // For each pixel, compare to local average in a window
-  // Makes text sharp black regardless of lighting
-  const blockSize = Math.max(11, Math.floor(Math.min(w, h) / 20) | 1); // must be odd
-  const C         = 8;   // constant subtracted from mean
-  const binary    = new Uint8Array(w * h);
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const half = Math.floor(blockSize / 2);
-      let   sum  = 0;
-      let   cnt  = 0;
-
-      for (let ky = Math.max(0, y - half); ky <= Math.min(h - 1, y + half); ky++) {
-        for (let kx = Math.max(0, x - half); kx <= Math.min(w - 1, x + half); kx++) {
-          sum += blurred[ky * w + kx];
-          cnt++;
-        }
-      }
-
-      const mean     = sum / cnt;
-      const pixelVal = blurred[y * w + x];
-      binary[y * w + x] = pixelVal < (mean - C) ? 0 : 255;
-    }
-  }
-
-  // ── 4. OPTIONAL INVERT ────────────────────
-  for (let i = 0; i < w * h; i++) {
-    let val = binary[i];
-    if (invert) val = 255 - val;
-    data[i * 4]     = val;
-    data[i * 4 + 1] = val;
-    data[i * 4 + 2] = val;
-    data[i * 4 + 3] = 255;
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-  return out;
+  for (let i = 0; i < w * h; i++) grey[i] = Math.round(0.299*data[i*4] + 0.587*data[i*4+1] + 0.114*data[i*4+2]);
+  const blurred = new Uint8Array(w * h); const kernel = [1,2,1,2,4,2,1,2,1]; const kSum = 16;
+  for (let y = 1; y < h-1; y++) for (let x = 1; x < w-1; x++) { let sum=0,ki=0; for (let ky=-1;ky<=1;ky++) for (let kx=-1;kx<=1;kx++) sum+=grey[(y+ky)*w+(x+kx)]*kernel[ki++]; blurred[y*w+x]=sum/kSum; }
+  for (let x=0;x<w;x++){blurred[x]=grey[x];blurred[(h-1)*w+x]=grey[(h-1)*w+x];}
+  for (let y=0;y<h;y++){blurred[y*w]=grey[y*w];blurred[y*w+w-1]=grey[y*w+w-1];}
+  const blockSize=Math.max(11,Math.floor(Math.min(w,h)/20)|1),C=8,binary=new Uint8Array(w*h);
+  for (let y=0;y<h;y++) for (let x=0;x<w;x++){const half=Math.floor(blockSize/2);let sum=0,cnt=0;for(let ky=Math.max(0,y-half);ky<=Math.min(h-1,y+half);ky++)for(let kx=Math.max(0,x-half);kx<=Math.min(w-1,x+half);kx++){sum+=blurred[ky*w+kx];cnt++;}binary[y*w+x]=blurred[y*w+x]<(sum/cnt-C)?0:255;}
+  for (let i=0;i<w*h;i++){const val=invert?255-binary[i]:binary[i];data[i*4]=data[i*4+1]=data[i*4+2]=val;data[i*4+3]=255;}
+  ctx.putImageData(imageData,0,0); return out;
 }
 
-/* ══════════════════════════════════════════════════════════
-   RESET
-══════════════════════════════════════════════════════════ */
-async function confirmReset() {
-  const pin = prompt('Enter admin PIN to reset (default: 0000)');
-  if (pin === null) return;
-  if (pin !== '0000') { showToast('Incorrect PIN', 'error'); return; }
-
-  try {
-    const res  = await fetch('/api/reset', { method: 'POST' });
-    const data = await res.json();
-    if (data.success) {
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-      document.getElementById('app').classList.add('hidden');
-      document.getElementById('setupOverlay').classList.remove('hidden');
-      document.getElementById('rowBuilder').innerHTML = '';
-      document.getElementById('floorBuilder').innerHTML = '';
-      floorCount   = 0;
-      floorMode    = 'single';
-      activeFloorTab  = null;
-      pickerFloorTab  = null;
-      isMultiFloor    = false;
-      latestLayout    = {};
-      latestConfig    = [];
-      latestFloorCfg  = null;
-      clearChosenSlot();
-      setFloorMode('single');
-      addRow();
-      showToast('System reset', 'info');
-    }
-  } catch (e) { showToast('Reset failed', 'error'); }
-}
-/* ══════════════════════════════════════════════════════════
-   SLOT CLICK POPUP
-══════════════════════════════════════════════════════════ */
-let popupSlotId      = null;
-let popupVehicle     = null;
-let durationInterval = null;
-const RATES = { car: 30, bike: 15, truck: 60 };
-
-function openSlotPopup(slotId) {
-  const slotData = latestLayout[slotId];
-  const occupied = slotData && slotData.status === 'occupied';
-  popupSlotId  = slotId;
-  popupVehicle = occupied ? slotData.vehicle : null;
-
-  // Show correct panel
-  document.getElementById('popupOccupied').style.display = occupied ? 'block' : 'none';
-  document.getElementById('popupEmpty').style.display    = occupied ? 'none'  : 'block';
-
-  if (occupied) {
-    const v = slotData.vehicle;
-
-    // Short slot ID for display (strip floor prefix)
-    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
-    document.getElementById('popupSlotId').textContent = displayId;
-    document.getElementById('popupPlate').textContent  = v.number_plate;
-    document.getElementById('popupType').textContent   = v.vehicle_type.toUpperCase();
-    document.getElementById('popupTicket').textContent = v.ticket_id;
-
-    // Entry time
-    const entryStr = v.entry_time.includes('T')
-      ? v.entry_time.split('T')[1].slice(0, 8)
-      : v.entry_time;
-    document.getElementById('popupEntry').textContent = entryStr;
-
-    // Live duration + fee ticker
-    if (durationInterval) clearInterval(durationInterval);
-    function updateDuration() {
-      const entryDate = new Date(v.entry_time);
-      const now       = new Date();
-      let   diffMins  = Math.floor((now - entryDate) / 60000);
-      if (diffMins < 0) diffMins = 0;
-
-      const hrs    = Math.floor(diffMins / 60);
-      const mins   = diffMins % 60;
-      const durStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
-      document.getElementById('popupDuration').textContent = durStr;
-
-      // Estimated fee
-      const rate       = RATES[v.vehicle_type] || 30;
-      const billHours  = Math.max(1, Math.ceil(diffMins / 60));
-      const estFee     = billHours * rate;
-      document.getElementById('popupFee').textContent = `₹${estFee}`;
-    }
-    updateDuration();
-    durationInterval = setInterval(updateDuration, 30000);
-
-  } else {
-    const displayId = slotId.includes('-') ? slotId.split('-')[1] : slotId;
-    document.getElementById('popupEmptySlotId').textContent = displayId;
-  }
-
-  document.getElementById('slotPopupOverlay').classList.remove('hidden');
+function setOcrStrip(plateText, statusText, detected) {
+  const plateEl  = document.getElementById('ocrPlate');
+  const statusEl = document.getElementById('ocrStatus');
+  if (plateEl)  { plateEl.textContent  = plateText; plateEl.className = 'ocr-strip-plate' + (detected ? ' detected' : plateText==='—'?'':' no-detect'); }
+  if (statusEl)   statusEl.textContent = statusText;
 }
 
-function closeSlotPopup(event) {
-  // Close on overlay click (but not modal click)
-  if (event && event.target !== document.getElementById('slotPopupOverlay')) return;
-  if (durationInterval) { clearInterval(durationInterval); durationInterval = null; }
-  document.getElementById('slotPopupOverlay').classList.add('hidden');
-  popupSlotId  = null;
-  popupVehicle = null;
+function setBadgeScanning(scanning) {
+  const badge = document.getElementById('camLiveBadge');
+  if (!badge) return;
+  if (scanning) { badge.classList.add('scanning'); badge.innerHTML = `<span class="cam-live-dot"></span> SCANNING`; }
+  else          { badge.classList.remove('scanning'); badge.innerHTML = `<span class="cam-live-dot"></span> LIVE`; }
 }
 
-function quickExit() {
-  if (!popupVehicle) return;
-  // Pre-fill exit form with plate number
-  document.getElementById('exitIdentifier').value = popupVehicle.number_plate;
-  closeSlotPopup();
-  showToast(`Ready to exit ${popupVehicle.number_plate}`, 'info');
-  // Scroll to exit panel
-  document.getElementById('exitIdentifier').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  document.getElementById('exitIdentifier').focus();
+function useCapturedPlate() {
+  if (!capturedPlate) return;
+  if (cameraMode === 'park') document.getElementById('parkPlate').value = capturedPlate;
+  else if (cameraMode === 'exit') document.getElementById('exitIdentifier').value = capturedPlate;
+  closeCamera();
+  showToast(`Plate ${capturedPlate} filled in form`, 'success');
 }
 
-function quickPark() {
-  if (!popupSlotId) return;
-  // Switch to manual mode with this slot pre-selected
-  chosenSlot = popupSlotId;
-  document.getElementById('chosenSlotValue').textContent = popupSlotId;
-  document.getElementById('chosenSlotDisplay').classList.remove('hidden');
-  setAssignModeQuiet('manual');
-  closeSlotPopup();
-  showToast(`Slot ${popupSlotId} pre-selected`, 'info');
-  document.getElementById('parkPlate').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  document.getElementById('parkPlate').focus();
+function validateManualInput(inputEl) {
+  const val = inputEl.value.toUpperCase().trim();
+  const validEl = document.getElementById('manualValidation');
+  const useBtn  = document.getElementById('manualUseBtn');
+  const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
+  if (!val) { inputEl.className='manual-always-input'; validEl.textContent=''; validEl.className='manual-validation'; useBtn.disabled=true; return; }
+  if (plateRegex.test(val)) { inputEl.className='manual-always-input valid'; validEl.textContent='✓ Valid plate format'; validEl.className='manual-validation ok'; useBtn.disabled=false; }
+  else { inputEl.className='manual-always-input invalid'; validEl.textContent='✗ Format: AA00AA0000'; validEl.className='manual-validation err'; useBtn.disabled=true; }
+}
+
+function submitManualPlate() {
+  const val = document.getElementById('manualPlateInput').value.toUpperCase().trim();
+  const plateRegex = /^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}$/;
+  if (!val || !plateRegex.test(val)) { showToast('Please enter a valid plate number first', 'error'); return; }
+  if (cameraMode === 'park') document.getElementById('parkPlate').value = val;
+  else if (cameraMode === 'exit' || cameraMode === 'exit_qr') document.getElementById('exitIdentifier').value = val;
+  closeCamera();
+  showToast(`Plate ${val} filled in form`, 'success');
+}
+
+function useOcrSuggestion() {
+  const suggestionBtn = document.getElementById('suggestionBtn');
+  if (!suggestionBtn) return;
+  const input = document.getElementById('manualPlateInput');
+  input.value = suggestionBtn.textContent.trim();
+  validateManualInput(input);
+  input.focus();
+  document.getElementById('ocrSuggestion').classList.add('hidden');
+  showToast('Partial text copied — correct it and press USE', 'info');
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1395,23 +1191,19 @@ function setMsg(el, msg, type) {
 /* ══════════════════════════════════════════════════════════
    v2.0 — QR CODE GENERATION (Entry Receipt)
 ══════════════════════════════════════════════════════════ */
-
 async function generateQRCode(ticketId) {
   const container = document.getElementById('qrCodeContainer');
   if (!container) return;
   container.innerHTML = '';
-
   try {
     const canvas = document.createElement('canvas');
     await QRCode.toCanvas(canvas, ticketId, {
-      width:  160,
-      margin: 2,
-      color:  { dark: '#000000', light: '#ffffff' }
+      width: 160, margin: 2,
+      color: { dark: '#000000', light: '#ffffff' }
     });
     canvas.className = 'qr-receipt-img';
     container.appendChild(canvas);
   } catch (err) {
-    // Fallback: show plain text if qrcode.js unavailable
     const fallback = document.createElement('div');
     fallback.style.cssText = 'padding:12px;font-family:monospace;font-size:0.75rem;color:var(--text-lo);text-align:center;';
     fallback.textContent = 'QR unavailable — use Ticket ID above';
@@ -1422,17 +1214,12 @@ async function generateQRCode(ticketId) {
 
 /* ══════════════════════════════════════════════════════════
    v2.0 — QR SCANNER (Exit Gate)
-   8 new functions + 2 tab helpers
 ══════════════════════════════════════════════════════════ */
-
-// ── TAB HELPERS ──────────────────────────────────────────
-
 function _activateOCRTab() {
   document.getElementById('tabOCR').classList.add('active');
   document.getElementById('tabQR').classList.remove('active');
   document.getElementById('cameraModalTitle').textContent = 'SCAN NUMBER PLATE';
   document.getElementById('cameraModalSub').textContent   = 'Camera scans automatically — or type the number on the right';
-  // Show OCR strip, hide QR strip
   document.getElementById('ocrStrip').classList.remove('hidden');
   document.getElementById('qrScanStrip').classList.add('hidden');
   document.getElementById('useTicketBtn').classList.add('hidden');
@@ -1443,150 +1230,84 @@ function _activateQRTab() {
   document.getElementById('tabOCR').classList.remove('active');
   document.getElementById('cameraModalTitle').textContent = 'SCAN QR CODE';
   document.getElementById('cameraModalSub').textContent   = 'Point camera at the QR code on the entry receipt';
-  // Show QR strip, hide OCR strip
   document.getElementById('qrScanStrip').classList.remove('hidden');
   document.getElementById('ocrStrip').classList.add('hidden');
   document.getElementById('usePlateBtn').classList.add('hidden');
 }
-
-// ── SWITCH MODE (tab click) ───────────────────────────────
 
 function switchCameraMode(mode) {
   if (mode === 'ocr') {
     stopQRScanLoop();
     _activateOCRTab();
     cameraMode = (cameraMode === 'exit_qr') ? 'exit' : cameraMode;
-    // Restart OCR scan if stream is live
     const video = document.getElementById('cameraFeed');
-    if (video && video.srcObject) {
-      initOcrWorker();
-      startAutoScan();
-    }
+    if (video && video.srcObject) { initOcrWorker(); startAutoScan(); }
   } else {
     stopAutoScan();
     _activateQRTab();
-    cameraMode = 'exit_qr';
+    cameraMode    = 'exit_qr';
     scannedTicket = null;
     document.getElementById('qrDecodedTicket').textContent = '—';
     document.getElementById('qrScanStatus').textContent    = 'Scanning for QR…';
     document.getElementById('useTicketBtn').classList.add('hidden');
-    // Start QR scan if stream is live
     const video = document.getElementById('cameraFeed');
-    if (video && video.srcObject) {
-      startQRScanLoop();
-    }
+    if (video && video.srcObject) startQRScanLoop();
   }
 }
-
-// ── 1. startQRScanLoop ───────────────────────────────────
 
 function startQRScanLoop() {
   stopQRScanLoop();
   qrScanActive = true;
   setBadgeScanning(true);
-  qrScanInterval = setInterval(() => {
-    if (qrScanActive) runQRScan();
-  }, 250);
+  qrScanInterval = setInterval(() => { if (qrScanActive) runQRScan(); }, 250);
 }
-
-// ── 2. stopQRScanLoop ────────────────────────────────────
 
 function stopQRScanLoop() {
   qrScanActive = false;
-  if (qrScanInterval) {
-    clearInterval(qrScanInterval);
-    qrScanInterval = null;
-  }
+  if (qrScanInterval) { clearInterval(qrScanInterval); qrScanInterval = null; }
 }
-
-// ── 3. runQRScan ─────────────────────────────────────────
 
 function runQRScan() {
   const video = document.getElementById('cameraFeed');
   if (!video || !video.srcObject || video.readyState < 2) return;
-
-  const canvas  = document.getElementById('cameraCanvas');
-  const ctx     = canvas.getContext('2d');
-  const w       = video.videoWidth  || 640;
-  const h       = video.videoHeight || 480;
-
-  canvas.width  = w;
-  canvas.height = h;
+  const canvas = document.getElementById('cameraCanvas');
+  const ctx    = canvas.getContext('2d');
+  const w = video.videoWidth || 640, h = video.videoHeight || 480;
+  canvas.width = w; canvas.height = h;
   ctx.drawImage(video, 0, 0, w, h);
-
   const imageData = ctx.getImageData(0, 0, w, h);
-
   try {
-    const code = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'dontInvert'
-    });
-    if (code) {
-      onQRDetected(code);
-    }
-  } catch (e) {
-    // jsQR not loaded or frame error — fail silently
-    console.warn('QR scan error:', e);
-  }
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+    if (code) onQRDetected(code);
+  } catch (e) { console.warn('QR scan error:', e); }
 }
-
-// ── 4. onQRDetected ──────────────────────────────────────
 
 function onQRDetected(code) {
   const raw = code.data.trim().toUpperCase();
-
-  if (!validateQRTicket(raw)) {
-    // QR found but not a valid ticket format — keep scanning
-    document.getElementById('qrScanStatus').textContent = 'Invalid QR — keep scanning…';
-    return;
-  }
-
+  if (!validateQRTicket(raw)) { document.getElementById('qrScanStatus').textContent = 'Invalid QR — keep scanning…'; return; }
   showQRResult(raw);
 }
-
-// ── 5. validateQRTicket ──────────────────────────────────
 
 function validateQRTicket(id) {
   return /^[A-Z0-9]{8}$/.test(id);
 }
 
-// ── 6. showQRResult ──────────────────────────────────────
-
 function showQRResult(ticketId) {
   scannedTicket = ticketId;
-
-  // Stop scanning — we have a valid result
   stopQRScanLoop();
   setBadgeScanning(false);
-
-  // Update QR strip
   const strip = document.getElementById('qrScanStrip');
   strip.classList.remove('hidden');
   strip.classList.add('qr-detected');
-
   document.getElementById('qrDecodedTicket').textContent = ticketId;
   document.getElementById('qrScanStatus').textContent    = 'Valid ticket found';
-
-  // Show USE button
   document.getElementById('useTicketBtn').classList.remove('hidden');
-
   showToast('QR scanned: ' + ticketId, 'success');
 }
 
-// ── 7. useScannedQR ──────────────────────────────────────
-
 function useScannedQR() {
   if (!scannedTicket) return;
-
-  // Fill exit form identifier input with scanned ticket ID
   document.getElementById('exitIdentifier').value = scannedTicket;
-
-  // Close camera and process exit immediately
   closeCamera();
   exitVehicle();
 }
-
-// ── 8. Exit form camera button now opens QR mode by default ──
-
-// Override: exit camera button opens QR scanner directly
-// The park camera button still opens OCR mode
-// Both modes are always switchable via tabs inside the modal
