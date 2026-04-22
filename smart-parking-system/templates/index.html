@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=JetBrains+Mono:wght@300;400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -21,6 +22,7 @@
     </div>
     <div class="modal-body">
 
+      <!-- FLOOR MODE TOGGLE -->
       <div class="floor-mode-toggle">
         <button class="fmode-btn active" id="fmodeSingle" onclick="setFloorMode('single')">
           <span class="fmode-icon">🏢</span>
@@ -34,6 +36,7 @@
         </button>
       </div>
 
+      <!-- SINGLE FLOOR CONFIG -->
       <div id="singleFloorConfig">
         <div class="section-label">ROW CONFIGURATION</div>
         <div class="row-builder" id="rowBuilder"></div>
@@ -42,6 +45,7 @@
         </div>
       </div>
 
+      <!-- MULTI FLOOR CONFIG -->
       <div id="multiFloorConfig" class="hidden">
         <div class="floor-builder" id="floorBuilder"></div>
         <div class="row-actions">
@@ -49,36 +53,11 @@
         </div>
       </div>
 
+      <!-- LAYOUT PREVIEW -->
       <div class="layout-preview" id="layoutPreview">
         <span class="preview-label">LAYOUT PREVIEW</span>
         <div class="preview-grid" id="previewGrid"></div>
         <div class="preview-stats" id="previewStats"></div>
-      </div>
-
-      <!-- Blueprint Upload -->
-      <div class="blueprint-upload-section">
-        <div class="bup-header">
-          <span class="bup-icon">🗺</span>
-          <div>
-            <div class="bup-title">FLOOR PLAN IMAGE <span class="optional-tag">OPTIONAL</span></div>
-            <div class="bup-sub">Upload a photo or diagram of your parking area. Slot markers will be overlaid on it.</div>
-          </div>
-        </div>
-        <div class="bup-dropzone" id="bupDropzone"
-             ondragover="bupDragOver(event)" ondragleave="bupDragLeave(event)"
-             ondrop="bupDrop(event)" onclick="document.getElementById('bupFileInput').click()">
-          <div class="bup-dz-icon" id="bupDzIcon">📁</div>
-          <div class="bup-dz-text">Click or drag & drop a floor plan image</div>
-          <div class="bup-dz-hint">PNG · JPG · WEBP · GIF · Max 10MB</div>
-          <input type="file" id="bupFileInput" accept="image/*" style="display:none" onchange="bupFileSelected(this)">
-        </div>
-        <div class="bup-preview hidden" id="bupPreview">
-          <img id="bupPreviewImg" src="" alt="Blueprint preview" />
-          <div class="bup-preview-actions">
-            <span class="bup-preview-name" id="bupPreviewName"></span>
-            <button class="bup-remove-btn" onclick="bupRemoveFile()">✕ REMOVE</button>
-          </div>
-        </div>
       </div>
 
     </div>
@@ -86,31 +65,6 @@
       <button class="btn-primary" onclick="submitSetup()">CREATE PARKING LOT</button>
     </div>
     <div class="modal-error" id="setupError"></div>
-  </div>
-</div>
-
-<!-- ══════════════════════ PIN MODAL (Reset) ══════════════════════ -->
-<div id="pinOverlay" class="overlay hidden">
-  <div class="modal pin-modal">
-    <div class="modal-header">
-      <div class="modal-icon">🔐</div>
-      <h2>ADMIN RESET</h2>
-      <p>Enter the admin PIN to reset the entire system</p>
-    </div>
-    <div class="modal-body">
-      <div class="pin-input-wrap">
-        <input type="password" id="pinInput" class="pin-input"
-               maxlength="4" placeholder="····"
-               oninput="pinClearError()"
-               onkeydown="if(event.key==='Enter') pinConfirm()" />
-        <span class="pin-hint">Default PIN: 0000</span>
-        <div class="pin-error" id="pinError"></div>
-      </div>
-    </div>
-    <div class="modal-footer" style="display:flex;gap:10px;">
-      <button class="btn-secondary" style="flex:1" onclick="pinCancel()">CANCEL</button>
-      <button class="btn-danger"    style="flex:2" onclick="pinConfirm()">CONFIRM RESET</button>
-    </div>
   </div>
 </div>
 
@@ -130,6 +84,7 @@
         <span class="spi-label">SELECTED</span>
         <span class="spi-slot" id="spiSlot">NONE</span>
       </div>
+      <!-- Floor tabs (shown only in multi-floor mode) -->
       <div class="picker-floor-tabs hidden" id="pickerFloorTabs"></div>
       <div class="slot-picker-grid" id="slotPickerGrid"></div>
       <div class="slot-picker-legend">
@@ -154,21 +109,30 @@
       <h2>SCAN NUMBER PLATE</h2>
       <p>Camera scans automatically — or type the number on the right</p>
     </div>
+
     <div class="camera-split">
+
+      <!-- LEFT — Live camera feed -->
       <div class="camera-left">
         <div class="camera-feed-wrap">
           <video id="cameraFeed" autoplay playsinline muted></video>
           <div class="camera-overlay-frame">
-            <div class="corner tl"></div><div class="corner tr"></div>
-            <div class="corner bl"></div><div class="corner br"></div>
+            <div class="corner tl"></div>
+            <div class="corner tr"></div>
+            <div class="corner bl"></div>
+            <div class="corner br"></div>
             <div class="scan-line" id="scanLine"></div>
           </div>
+          <!-- Crop zone indicator — shows operator where to aim -->
           <div class="crop-zone"></div>
           <canvas id="cameraCanvas" style="display:none;"></canvas>
+          <!-- Live scan status badge -->
           <div class="cam-live-badge" id="camLiveBadge">
             <span class="cam-live-dot"></span> LIVE
           </div>
         </div>
+
+        <!-- OCR result strip below video -->
         <div class="ocr-strip" id="ocrStrip">
           <div class="ocr-strip-left">
             <span class="ocr-strip-label">DETECTED</span>
@@ -178,27 +142,42 @@
             <span class="ocr-strip-conf" id="ocrStatus">Scanning…</span>
           </div>
         </div>
+
+        <!-- Use detected plate button -->
         <button class="btn-use-detected hidden" id="usePlateBtn" onclick="useCapturedPlate()">
           ✅ USE THIS PLATE
         </button>
       </div>
+
+      <!-- RIGHT — Manual entry always visible -->
       <div class="camera-right">
         <div class="manual-always">
           <div class="manual-always-header">
             <span class="manual-always-icon">✏️</span>
             <span class="manual-always-title">MANUAL ENTRY</span>
           </div>
-          <div class="manual-always-hint">Type while camera scans</div>
+          <div class="manual-always-hint">
+            Type while camera scans
+          </div>
           <label class="manual-always-label">VEHICLE NUMBER</label>
-          <input type="text" id="manualPlateInput" class="manual-always-input"
-                 placeholder="TS09AB1234" maxlength="11"
+          <input type="text"
+                 id="manualPlateInput"
+                 class="manual-always-input"
+                 placeholder="TS09AB1234"
+                 maxlength="10"
                  oninput="this.value=this.value.toUpperCase(); validateManualInput(this)"
                  onkeydown="if(event.key==='Enter') submitManualPlate()" />
           <div class="manual-format-hint">Format: AA00AA0000</div>
+
+          <!-- Validation indicator -->
           <div class="manual-validation" id="manualValidation"></div>
-          <button class="btn-manual-use" id="manualUseBtn" onclick="submitManualPlate()" disabled>
+
+          <button class="btn-manual-use" id="manualUseBtn"
+                  onclick="submitManualPlate()" disabled>
             USE THIS NUMBER
           </button>
+
+          <!-- Quick plate suggestions if OCR got something partial -->
           <div class="ocr-suggestion hidden" id="ocrSuggestion">
             <div class="suggestion-label">OCR DETECTED (PARTIAL)</div>
             <button class="suggestion-btn" id="suggestionBtn" onclick="useOcrSuggestion()">—</button>
@@ -206,10 +185,14 @@
           </div>
         </div>
       </div>
+
     </div>
+
+    <!-- Bottom actions -->
     <div class="camera-actions-v2">
       <button class="btn-cancel-cam" onclick="closeCamera()">✕ CANCEL</button>
     </div>
+
   </div>
 </div>
 
@@ -221,6 +204,12 @@
       <h3 id="receiptTitle">ENTRY TICKET</h3>
     </div>
     <div class="receipt-body" id="receiptBody"></div>
+    <div class="qr-receipt-section hidden" id="qrReceiptSection">
+      <span class="qr-scan-label">SCAN TO EXIT</span>
+      <div id="qrCodeContainer"></div>
+      <span class="qr-ticket-text" id="qrTicketText"></span>
+      <span class="qr-scan-hint">Show this QR at the exit gate</span>
+    </div>
     <div id="printArea" class="print-area"></div>
     <div class="receipt-actions">
       <button class="btn-primary"   onclick="printReceipt()">🖨️ PRINT RECEIPT</button>
@@ -260,10 +249,6 @@
         <div class="live-clock" id="liveClock">00:00:00</div>
         <div class="live-date"  id="liveDate">—</div>
       </div>
-      <!-- Phase 4: Analytics toggle -->
-      <button class="btn-analytics-toggle" id="analyticsToggleBtn" onclick="toggleAnalytics()">
-        📊 ANALYTICS
-      </button>
       <button class="btn-reset" onclick="confirmReset()">⚙ RESET</button>
     </div>
   </header>
@@ -274,113 +259,26 @@
     <div class="occ-bar-label" id="occBarLabel">0% OCCUPIED</div>
   </div>
 
-  <!-- ══ ANALYTICS PANEL (Phase 4) ══ -->
-  <div class="analytics-panel hidden" id="analyticsPanel">
-    <div class="analytics-header">
-      <div class="analytics-title">📊 ANALYTICS DASHBOARD</div>
-      <div class="analytics-actions">
-        <button class="btn-csv" onclick="exportHistoryCSV()">⬇ HISTORY CSV</button>
-        <button class="btn-csv" onclick="exportRevenueCSV()">⬇ REVENUE CSV</button>
-      </div>
-    </div>
-
-    <!-- Stat cards -->
-    <div class="analytics-stats">
-      <div class="astat">
-        <div class="astat-val" id="astatToday">0</div>
-        <div class="astat-label">VEHICLES TODAY</div>
-      </div>
-      <div class="astat">
-        <div class="astat-val" id="astatAvgStay">—</div>
-        <div class="astat-label">AVG STAY (MIN)</div>
-      </div>
-      <div class="astat">
-        <div class="astat-val" id="astatPeak">—</div>
-        <div class="astat-label">PEAK HOUR</div>
-      </div>
-      <div class="astat">
-        <div class="astat-val" id="astatRevenue">₹0</div>
-        <div class="astat-label">TOTAL REVENUE</div>
-      </div>
-    </div>
-
-    <!-- Revenue bar chart -->
-    <div class="revenue-chart">
-      <div class="revenue-chart-title">REVENUE BY VEHICLE TYPE</div>
-      <div class="rev-bar-group">
-        <div class="rev-bar-row">
-          <span class="rev-bar-label">🚗 CAR</span>
-          <div class="rev-bar-track">
-            <div class="rev-bar-fill car" id="revBarCar" style="width:0%"></div>
-          </div>
-          <span class="rev-bar-amount" id="revAmtCar">₹0</span>
-        </div>
-        <div class="rev-bar-row">
-          <span class="rev-bar-label">🏍 BIKE</span>
-          <div class="rev-bar-track">
-            <div class="rev-bar-fill bike" id="revBarBike" style="width:0%"></div>
-          </div>
-          <span class="rev-bar-amount" id="revAmtBike">₹0</span>
-        </div>
-        <div class="rev-bar-row">
-          <span class="rev-bar-label">🚛 TRUCK</span>
-          <div class="rev-bar-track">
-            <div class="rev-bar-fill truck" id="revBarTruck" style="width:0%"></div>
-          </div>
-          <span class="rev-bar-amount" id="revAmtTruck">₹0</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- History table -->
-    <div class="history-section">
-      <div class="history-header">
-        <span class="history-title">EXIT HISTORY (LAST 200)</span>
-        <div class="history-search-wrap">
-          <span class="history-search-icon">🔍</span>
-          <input type="text" id="historySearch" class="history-search"
-                 placeholder="Search plate…"
-                 oninput="filterHistory(this.value)" />
-        </div>
-      </div>
-      <div class="history-table-wrap">
-        <table class="history-table">
-          <thead>
-            <tr>
-              <th>PLATE</th>
-              <th>TYPE</th>
-              <th>SLOT</th>
-              <th>ENTRY</th>
-              <th>EXIT</th>
-              <th>DURATION</th>
-              <th>FEE</th>
-            </tr>
-          </thead>
-          <tbody id="historyTableBody">
-            <tr><td colspan="7" class="history-empty">No exit records yet</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
   <!-- MAIN CONTENT -->
   <main class="main">
 
     <!-- LEFT PANEL -->
     <aside class="left-panel">
 
+      <!-- PARK VEHICLE -->
       <div class="panel">
         <div class="panel-title"><span>🚗</span> PARK VEHICLE</div>
+
         <div class="form-group">
           <label>VEHICLE NUMBER</label>
           <div class="input-with-cam">
             <input type="text" id="parkPlate" placeholder="TS09AB1234"
-                   maxlength="11" oninput="this.value=this.value.toUpperCase()" />
+                   maxlength="10" oninput="this.value=this.value.toUpperCase()" />
             <button class="btn-cam" onclick="openCamera('park')" title="Scan with camera">📷</button>
           </div>
           <span class="hint">Format: AA00AA0000 · or use 📷 to scan</span>
         </div>
+
         <div class="form-group">
           <label>VEHICLE TYPE</label>
           <div class="type-selector">
@@ -389,12 +287,16 @@
             <button class="type-btn"        data-type="truck" onclick="selectType(this)">🚛 TRUCK<br><small>₹60/hr</small></button>
           </div>
         </div>
+
+        <!-- FLOOR PREFERENCE (multi-floor only, optional) -->
         <div class="form-group hidden" id="floorPrefGroup">
           <label>PREFERRED FLOOR <span class="optional-tag">OPTIONAL</span></label>
           <select id="floorPrefSelect" class="floor-select">
             <option value="">Any floor (auto-assign)</option>
           </select>
         </div>
+
+        <!-- SLOT ASSIGNMENT MODE -->
         <div class="form-group">
           <label>SLOT ASSIGNMENT</label>
           <div class="assign-toggle">
@@ -410,15 +312,19 @@
             </button>
           </div>
         </div>
+
+        <!-- CHOSEN SLOT DISPLAY -->
         <div class="chosen-slot-display hidden" id="chosenSlotDisplay">
           <span class="cs-label">CHOSEN SLOT</span>
           <span class="cs-value" id="chosenSlotValue">—</span>
           <button class="cs-change" onclick="openSlotPicker()">CHANGE</button>
         </div>
+
         <button class="btn-primary full" onclick="parkVehicle()">PARK VEHICLE</button>
         <div class="form-msg" id="parkMsg"></div>
       </div>
 
+      <!-- EXIT VEHICLE -->
       <div class="panel">
         <div class="panel-title"><span>🚪</span> EXIT VEHICLE</div>
         <div class="form-group">
@@ -434,6 +340,7 @@
         <div class="form-msg" id="exitMsg"></div>
       </div>
 
+      <!-- REVENUE -->
       <div class="panel revenue-panel">
         <div class="panel-title"><span>💰</span> REVENUE</div>
         <div class="revenue-display">
@@ -447,33 +354,24 @@
     <!-- RIGHT PANEL -->
     <section class="right-panel">
 
+      <!-- BLUEPRINT -->
       <div class="panel blueprint-panel">
         <div class="panel-header-row">
           <div class="panel-title"><span>🗺</span> PARKING BLUEPRINT</div>
-          <div class="bp-header-right">
-            <div class="bp-mode-toggle hidden" id="bpModeToggle">
-              <button class="bp-mode-btn active" id="bpModeGrid"  onclick="setBlueprintMode('grid')">⊞ GRID</button>
-              <button class="bp-mode-btn"        id="bpModeImage" onclick="setBlueprintMode('image')">🖼 MAP</button>
-            </div>
-            <div class="legend">
-              <span><span class="legend-dot empty"></span>AVAILABLE</span>
-              <span><span class="legend-dot occupied"></span>OCCUPIED</span>
-            </div>
+          <div class="legend">
+            <span><span class="legend-dot empty"></span>AVAILABLE</span>
+            <span><span class="legend-dot occupied"></span>OCCUPIED</span>
           </div>
         </div>
+        <!-- Floor tabs (multi-floor only) -->
         <div class="floor-tabs hidden" id="floorTabs"></div>
         <div class="blueprint-grid" id="blueprintGrid"></div>
-        <div class="blueprint-image-wrap hidden" id="blueprintImageWrap">
-          <img id="blueprintBgImage" src="" alt="Parking blueprint" draggable="false" />
-          <div class="blueprint-markers" id="blueprintMarkers"></div>
-          <div class="bp-save-bar" id="bpSaveBar">
-            <span class="bp-save-hint">Drag markers to match real slot positions</span>
-            <button class="btn-bp-save" onclick="saveSlotPositions()">💾 SAVE POSITIONS</button>
-          </div>
-        </div>
+
+        <!-- Floor summary bar (multi-floor only) -->
         <div class="floor-summary hidden" id="floorSummary"></div>
       </div>
 
+      <!-- QUEUE -->
       <div class="panel queue-panel">
         <div class="panel-title">
           <span>⏳</span> WAITING QUEUE
@@ -487,10 +385,11 @@
     </section>
   </main>
 </div>
-
 <!-- ══════════════════════ SLOT DETAIL POPUP ══════════════════════ -->
 <div id="slotPopupOverlay" class="overlay hidden" onclick="closeSlotPopup(event)">
   <div class="modal slot-popup-modal" onclick="event.stopPropagation()">
+
+    <!-- OCCUPIED STATE -->
     <div id="popupOccupied">
       <div class="popup-header occupied-header">
         <div class="popup-slot-badge" id="popupSlotId">A1</div>
@@ -498,17 +397,39 @@
         <button class="popup-close" onclick="closeSlotPopup()">✕</button>
       </div>
       <div class="popup-body">
-        <div class="popup-row"><span class="popup-label">VEHICLE NUMBER</span><span class="popup-value plate-value" id="popupPlate">—</span></div>
-        <div class="popup-row"><span class="popup-label">VEHICLE TYPE</span><span class="popup-value" id="popupType">—</span></div>
-        <div class="popup-row"><span class="popup-label">TICKET ID</span><span class="popup-value mono-value" id="popupTicket">—</span></div>
-        <div class="popup-row"><span class="popup-label">ENTRY TIME</span><span class="popup-value" id="popupEntry">—</span></div>
-        <div class="popup-row"><span class="popup-label">DURATION SO FAR</span><span class="popup-value live-duration" id="popupDuration">—</span></div>
-        <div class="popup-row"><span class="popup-label">ESTIMATED FEE</span><span class="popup-value fee-value" id="popupFee">—</span></div>
+        <div class="popup-row">
+          <span class="popup-label">VEHICLE NUMBER</span>
+          <span class="popup-value plate-value" id="popupPlate">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">VEHICLE TYPE</span>
+          <span class="popup-value" id="popupType">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">TICKET ID</span>
+          <span class="popup-value mono-value" id="popupTicket">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">ENTRY TIME</span>
+          <span class="popup-value" id="popupEntry">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">DURATION SO FAR</span>
+          <span class="popup-value live-duration" id="popupDuration">—</span>
+        </div>
+        <div class="popup-row">
+          <span class="popup-label">ESTIMATED FEE</span>
+          <span class="popup-value fee-value" id="popupFee">—</span>
+        </div>
       </div>
       <div class="popup-footer">
-        <button class="btn-danger full" onclick="quickExit()">🚪 PROCESS EXIT FOR THIS VEHICLE</button>
+        <button class="btn-danger full" onclick="quickExit()">
+          🚪 PROCESS EXIT FOR THIS VEHICLE
+        </button>
       </div>
     </div>
+
+    <!-- EMPTY STATE -->
     <div id="popupEmpty">
       <div class="popup-header empty-header">
         <div class="popup-slot-badge empty-badge" id="popupEmptySlotId">A1</div>
@@ -523,11 +444,14 @@
         </div>
       </div>
       <div class="popup-footer">
-        <button class="btn-primary full" onclick="quickPark()">🚗 PARK A VEHICLE IN THIS SLOT</button>
+        <button class="btn-primary full" onclick="quickPark()">
+          🚗 PARK A VEHICLE IN THIS SLOT
+        </button>
         <div style="height:8px"></div>
         <button class="btn-secondary full" onclick="closeSlotPopup()">CLOSE</button>
       </div>
     </div>
+
   </div>
 </div>
 
