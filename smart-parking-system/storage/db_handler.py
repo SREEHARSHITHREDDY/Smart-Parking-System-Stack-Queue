@@ -1,10 +1,6 @@
 """
 storage/db_handler.py — SQLAlchemy-based save/load
-Replaces file_handler.py for v3.0
-Day 18: Smart Parking System v3.0
-
-Drop-in replacement for save_data() and load_data().
-All callers in app.py stay the same.
+v3.0 — Day 19 fix: flush before vehicle insert so slot.id is available
 """
 
 from datetime import datetime
@@ -14,18 +10,9 @@ from models.db import (
 )
 
 
-# ─────────────────────────────────────────────
-# SAVE
-# ─────────────────────────────────────────────
-
 def save_data(parking_lot, lot_db_id=1):
-    """
-    Persist the entire ParkingLot state to PostgreSQL.
-    Called after every park, exit, setup, or reset — same as before.
-    lot_db_id defaults to 1 (single-operator, single-lot setup for now).
-    """
 
-    # ── 1. Upsert the lot record ──────────────
+    # ── 1. Upsert lot record ──────────────────
     lot = ParkingLotModel.query.get(lot_db_id)
     if not lot:
         lot = ParkingLotModel(id=lot_db_id)
@@ -37,14 +24,18 @@ def save_data(parking_lot, lot_db_id=1):
     lot.revenue      = parking_lot.revenue
 
     # ── 2. Sync slots ─────────────────────────
-    # Build a map of existing slot rows
-    existing_slots = {s.slot_id: s for s in SlotModel.query.filter_by(lot_id=lot_db_id).all()}
+    existing_slots = {
+        s.slot_id: s
+        for s in SlotModel.query.filter_by(lot_id=lot_db_id).all()
+    }
 
     for slot_id, info in parking_lot.layout.items():
         slot_row = existing_slots.get(slot_id)
         if not slot_row:
             slot_row = SlotModel(lot_id=lot_db_id, slot_id=slot_id)
             db.session.add(slot_row)
+            # ── FLUSH so slot_row.id is assigned before vehicle insert ──
+            db.session.flush()
 
         slot_row.floor_name = info.get('floor')
         slot_row.status     = info['status']
@@ -53,7 +44,7 @@ def save_data(parking_lot, lot_db_id=1):
         slot_row.pos_x = pos['x'] if pos else None
         slot_row.pos_y = pos['y'] if pos else None
 
-        # ── Vehicle ──────────────────────────
+        # ── Vehicle ───────────────────────────
         v = info.get('vehicle')
         if v and info['status'] == 'occupied':
             if not slot_row.vehicle:
@@ -68,7 +59,6 @@ def save_data(parking_lot, lot_db_id=1):
             vehicle_row.qr_data      = v.qr_data
             vehicle_row.entry_time   = v.entry_time
         else:
-            # Slot is empty — delete vehicle row if exists
             if slot_row.vehicle:
                 db.session.delete(slot_row.vehicle)
 
@@ -80,7 +70,7 @@ def save_data(parking_lot, lot_db_id=1):
             number_plate = v.number_plate,
             vehicle_type = v.vehicle_type,
             ticket_id    = v.ticket_id,
-            qr_data      = v.qr_data,
+            qr_data      = getattr(v, 'qr_data', v.ticket_id),
             entry_time   = v.entry_time,
             position     = pos
         )
@@ -88,8 +78,9 @@ def save_data(parking_lot, lot_db_id=1):
 
     # ── 4. Sync history (append-only) ─────────
     existing_tickets = {
-        h.ticket_id for h in HistoryModel.query.filter_by(lot_id=lot_db_id)
-                                                .with_entities(HistoryModel.ticket_id).all()
+        h.ticket_id
+        for h in HistoryModel.query.filter_by(lot_id=lot_db_id)
+                                    .with_entities(HistoryModel.ticket_id).all()
     }
     for record in parking_lot.history:
         if record['ticket_id'] not in existing_tickets:
@@ -109,22 +100,12 @@ def save_data(parking_lot, lot_db_id=1):
     db.session.commit()
 
 
-# ─────────────────────────────────────────────
-# LOAD
-# ─────────────────────────────────────────────
-
 def load_data(lot_db_id=1):
-    """
-    Load parking state from PostgreSQL.
-    Returns same dict structure as old file_handler.load_data()
-    so bootstrap() in app.py needs zero changes.
-    Returns None if no lot found.
-    """
+
     lot = ParkingLotModel.query.get(lot_db_id)
     if not lot:
         return None
 
-    # Build layout dict
     layout = {}
     for slot_row in lot.slots:
         vehicle_dict = slot_row.vehicle.to_dict() if slot_row.vehicle else None
@@ -136,21 +117,18 @@ def load_data(lot_db_id=1):
                         if slot_row.pos_x is not None else None,
         }
 
-    # Build queue list (ordered by position)
     queue = [
         q.to_dict()
         for q in QueueModel.query.filter_by(lot_id=lot_db_id)
                                   .order_by(QueueModel.position).all()
     ]
 
-    # Build history list
     history = [
         h.to_dict()
         for h in HistoryModel.query.filter_by(lot_id=lot_db_id)
                                     .order_by(HistoryModel.exit_time).all()
     ]
 
-    # Revenue by type (computed from history)
     revenue_by_type = {'car': 0.0, 'bike': 0.0, 'truck': 0.0}
     for h in history:
         vtype = h['vehicle_type'].lower()
