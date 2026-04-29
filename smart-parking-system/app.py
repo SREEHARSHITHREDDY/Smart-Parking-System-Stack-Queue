@@ -313,20 +313,21 @@ def reset():
             db, ParkingLotModel, SlotModel,
             VehicleModel, QueueModel, HistoryModel
         )
-        # Delete in correct order to respect foreign keys
-        HistoryModel.query.filter_by(lot_id=1).delete()
-        QueueModel.query.filter_by(lot_id=1).delete()
-
-        # Delete vehicles by getting slot IDs first
-        slot_ids = [s.id for s in SlotModel.query.filter_by(lot_id=1).all()]
-        if slot_ids:
-            VehicleModel.query.filter(VehicleModel.slot_db_id.in_(slot_ids)).delete(
-                synchronize_session='fetch'
-            )
-
-        SlotModel.query.filter_by(lot_id=1).delete()
-        ParkingLotModel.query.filter_by(id=1).delete()
-        db.session.commit()
+        try:
+            HistoryModel.query.filter_by(lot_id=1).delete()
+            QueueModel.query.filter_by(lot_id=1).delete()
+            slot_ids = [s.id for s in SlotModel.query.filter_by(lot_id=1).all()]
+            if slot_ids:
+                VehicleModel.query.filter(
+                    VehicleModel.slot_db_id.in_(slot_ids)
+                ).delete(synchronize_session='fetch')
+            SlotModel.query.filter_by(lot_id=1).delete()
+            ParkingLotModel.query.filter_by(id=1).delete()
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f'Reset DB error: {e}')
+            return jsonify({'success': False, 'message': f'Reset failed: {str(e)}'})
     else:
         if os.path.exists('data/parking_data.json'):
             os.remove('data/parking_data.json')
