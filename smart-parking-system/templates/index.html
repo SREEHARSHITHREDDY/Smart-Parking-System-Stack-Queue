@@ -8,8 +8,6 @@
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=JetBrains+Mono:wght@300;400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
 </head>
 <body>
 
@@ -107,18 +105,8 @@
   <div class="modal camera-modal-v2">
     <div class="modal-header">
       <div class="modal-icon">📷</div>
-      <h2 id="cameraModalTitle">SCAN NUMBER PLATE</h2>
-      <p id="cameraModalSub">Camera scans automatically — or type the number on the right</p>
-    </div>
-
-    <!-- Mode tabs — OCR (default) or QR scan -->
-    <div class="cam-mode-tabs" id="camModeTabs">
-      <button class="cam-mode-tab active" id="tabOCR" onclick="switchCameraMode('ocr')">
-        📷 PLATE OCR
-      </button>
-      <button class="cam-mode-tab" id="tabQR" onclick="switchCameraMode('qr')">
-        ▣ QR CODE
-      </button>
+      <h2>SCAN NUMBER PLATE</h2>
+      <p>Camera scans automatically — or type the number on the right</p>
     </div>
 
     <div class="camera-split">
@@ -157,21 +145,6 @@
         <!-- Use detected plate button -->
         <button class="btn-use-detected hidden" id="usePlateBtn" onclick="useCapturedPlate()">
           ✅ USE THIS PLATE
-        </button>
-
-        <!-- QR scan result strip (hidden in OCR mode) -->
-        <div class="qr-scan-strip hidden" id="qrScanStrip">
-          <div class="qr-strip-left">
-            <span class="qr-strip-label">QR DECODED</span>
-            <span class="qr-strip-ticket" id="qrDecodedTicket">—</span>
-          </div>
-          <div class="qr-strip-right">
-            <span class="qr-strip-status" id="qrScanStatus">Scanning for QR…</span>
-          </div>
-        </div>
-
-        <button class="btn-use-detected hidden" id="useTicketBtn" onclick="useScannedQR()">
-          ✅ USE THIS TICKET
         </button>
       </div>
 
@@ -230,12 +203,6 @@
       <h3 id="receiptTitle">ENTRY TICKET</h3>
     </div>
     <div class="receipt-body" id="receiptBody"></div>
-    <div class="qr-receipt-section hidden" id="qrReceiptSection">
-      <span class="qr-scan-label">SCAN TO EXIT</span>
-      <div id="qrCodeContainer"></div>
-      <span class="qr-ticket-text" id="qrTicketText"></span>
-      <span class="qr-scan-hint">Show this QR at the exit gate</span>
-    </div>
     <div id="printArea" class="print-area"></div>
     <div class="receipt-actions">
       <button class="btn-primary"   onclick="printReceipt()">🖨️ PRINT RECEIPT</button>
@@ -275,6 +242,8 @@
         <div class="live-clock" id="liveClock">00:00:00</div>
         <div class="live-date"  id="liveDate">—</div>
       </div>
+      <div id="surgeBadge" class="surge-badge hidden">⚡ SURGE ACTIVE</div>
+      <button class="btn-pricing" onclick="togglePricing()">⚡ PRICING</button>
       <button class="btn-reset" onclick="confirmReset()">⚙ RESET</button>
     </div>
   </header>
@@ -359,7 +328,7 @@
             <input type="text" id="exitIdentifier"
                    placeholder="e.g. A1B2C3D4 or TS09AB1234"
                    oninput="this.value=this.value.toUpperCase()" />
-            <button class="btn-cam" onclick="openCamera('exit_qr')" title="Scan QR or plate">📷</button>
+            <button class="btn-cam" onclick="openCamera('exit')" title="Scan with camera">📷</button>
           </div>
         </div>
         <button class="btn-danger full" onclick="exitVehicle()">PROCESS EXIT</button>
@@ -478,6 +447,67 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- ══════════ PRICING PANEL ══════════ -->
+<div id="pricingPanel" class="pricing-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">⚡ DYNAMIC PRICING RULES</div>
+    <button class="btn-add-rule" onclick="openAddRule()">+ ADD RULE</button>
+  </div>
+
+  <div class="pricing-rules-list" id="pricingRulesList">
+    <div class="empty-state">No pricing rules yet. Add one above.</div>
+  </div>
+</div>
+
+<!-- ══════════ ADD RULE MODAL ══════════ -->
+<div id="addRuleOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-icon">⚡</div>
+      <h2>ADD SURGE RULE</h2>
+      <p>Set a time window when higher rates apply</p>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>RULE NAME</label>
+        <input type="text" id="ruleName" placeholder="e.g. Morning Rush" />
+      </div>
+      <div class="form-group">
+        <label>START HOUR (0–23)</label>
+        <input type="number" id="ruleStart" min="0" max="23" value="9" />
+      </div>
+      <div class="form-group">
+        <label>END HOUR (0–23)</label>
+        <input type="number" id="ruleEnd" min="0" max="23" value="11" />
+      </div>
+      <div class="form-group">
+        <label>MULTIPLIER</label>
+        <input type="number" id="ruleMultiplier" min="1.1" max="5" step="0.1" value="1.5" />
+        <span class="hint">1.5 = 50% higher rate during this window</span>
+      </div>
+      <div class="form-group">
+        <label>DAY OF WEEK (optional — leave blank for all days)</label>
+        <select id="ruleDow" class="floor-select">
+          <option value="">Every day</option>
+          <option value="0">Monday</option>
+          <option value="1">Tuesday</option>
+          <option value="2">Wednesday</option>
+          <option value="3">Thursday</option>
+          <option value="4">Friday</option>
+          <option value="5">Saturday</option>
+          <option value="6">Sunday</option>
+        </select>
+      </div>
+      <div class="modal-error" id="ruleError"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="saveRule()">SAVE RULE</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="closeAddRule()">CANCEL</button>
+    </div>
   </div>
 </div>
 
