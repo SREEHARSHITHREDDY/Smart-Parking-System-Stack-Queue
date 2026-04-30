@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from dotenv import load_dotenv
 
 from models.vehicle import Vehicle
@@ -11,12 +11,15 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# ── Config ────────────────────────────────────────────────────
 DATABASE_URL = os.getenv('DATABASE_URL')
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 if DATABASE_URL:
     app.config['SQLALCHEMY_DATABASE_URI']        = DATABASE_URL
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     from models.db import db, init_db
+    from models.user import UserModel, create_default_admin
     from storage.db_handler import save_data, load_data
     init_db(app)
     USE_DB = True
@@ -25,6 +28,19 @@ else:
     from storage.file_handler import save_data, load_data
     USE_DB = False
     print('⚠ DATABASE_URL not set — using JSON file storage')
+
+# ── Flask-Login ───────────────────────────────────────────────
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+@login_manager.user_loader
+def load_user(user_id):
+    if not USE_DB:
+        return None
+    return UserModel.query.get(int(user_id))
 
 parking_lot = None
 billing     = Billing()
@@ -38,12 +54,72 @@ def blueprint_exists():
     return os.path.exists(BLUEPRINT_FILE)
 
 
+def login_exempt(f):
+    """Mark a route as not requiring login (used when USE_DB is False)."""
+    f._login_exempt = True
+    return f
+
+
+# ─────────────────────────────────────────────
+# AUTH ROUTES
+# ─────────────────────────────────────────────
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    # If DB not enabled — skip auth, go straight to app
+    if not USE_DB:
+        return redirect(url_for('index'))
+
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        email    = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+
+        user = UserModel.query.filter_by(email=email).first()
+
+        if user and user.check_password(password) and user.active:
+            from datetime import datetime
+            user.last_login = datetime.utcnow()
+            db.session.commit()
+            login_user(user, remember=True)
+            return redirect(url_for('index'))
+        else:
+            return render_template('login.html', error='Invalid email or password', email=email)
+
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+
+# ─────────────────────────────────────────────
+# AUTH HELPER — require login on all API routes
+# ─────────────────────────────────────────────
+
+def api_login_required(f):
+    """Decorator: requires login for API routes when DB is enabled."""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if USE_DB and not current_user.is_authenticated:
+            return jsonify({'success': False, 'message': 'Login required'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
 # ─────────────────────────────────────────────
 # PAGE ROUTE
 # ─────────────────────────────────────────────
 
 @app.route('/')
 def index():
+    if USE_DB and not current_user.is_authenticated:
+        return redirect(url_for('login'))
     return render_template('index.html')
 
 
@@ -52,6 +128,7 @@ def index():
 # ─────────────────────────────────────────────
 
 @app.route('/api/status')
+@api_login_required
 def status():
     if not parking_lot:
         return jsonify({
@@ -88,6 +165,7 @@ def status():
 # ─────────────────────────────────────────────
 
 @app.route('/api/setup', methods=['POST'])
+@api_login_required
 def setup():
     global parking_lot
 
@@ -138,6 +216,7 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/api/upload-blueprint', methods=['POST'])
+@api_login_required
 def upload_blueprint():
     if 'blueprint' not in request.files:
         return jsonify({'success': False, 'message': 'No file in request'})
@@ -155,11 +234,13 @@ def upload_blueprint():
     })
 
 @app.route('/api/blueprint-status')
+@api_login_required
 def blueprint_status():
     exists = blueprint_exists()
     return jsonify({'exists': exists, 'url': '/static/uploads/blueprint.png' if exists else None})
 
 @app.route('/api/save-slot-positions', methods=['POST'])
+@api_login_required
 def save_slot_positions():
     global parking_lot
     if not parking_lot:
@@ -180,6 +261,7 @@ def save_slot_positions():
 # ─────────────────────────────────────────────
 
 @app.route('/api/park', methods=['POST'])
+@api_login_required
 def park():
     global parking_lot
 
@@ -264,6 +346,7 @@ def park():
 # ─────────────────────────────────────────────
 
 @app.route('/api/exit', methods=['POST'])
+@api_login_required
 def exit_vehicle():
     global parking_lot
 
@@ -286,6 +369,7 @@ def exit_vehicle():
 # ─────────────────────────────────────────────
 
 @app.route('/api/history')
+@api_login_required
 def history():
     if not parking_lot:
         return jsonify({'success': False, 'history': []})
@@ -293,6 +377,7 @@ def history():
     return jsonify({'success': True, 'history': records})
 
 @app.route('/api/analytics')
+@api_login_required
 def analytics():
     if not parking_lot:
         return jsonify({'success': False})
@@ -300,10 +385,11 @@ def analytics():
 
 
 # ─────────────────────────────────────────────
-# API: RESET  ← FIXED for SQLAlchemy 2.x
+# API: RESET
 # ─────────────────────────────────────────────
 
 @app.route('/api/reset', methods=['POST'])
+@api_login_required
 def reset():
     global parking_lot
     parking_lot = None
@@ -326,8 +412,7 @@ def reset():
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f'Reset DB error: {e}')
-            return jsonify({'success': False, 'message': f'Reset failed: {str(e))'})
+            return jsonify({'success': False, 'message': f'Reset failed: {str(e)}'})
     else:
         if os.path.exists('data/parking_data.json'):
             os.remove('data/parking_data.json')
@@ -339,11 +424,34 @@ def reset():
 
 
 # ─────────────────────────────────────────────
+# API: USER INFO (for frontend)
+# ─────────────────────────────────────────────
+
+@app.route('/api/me')
+@api_login_required
+def me():
+    if not USE_DB:
+        return jsonify({'name': 'Operator', 'role': 'admin', 'email': ''})
+    return jsonify({
+        'name':  current_user.name,
+        'role':  current_user.role,
+        'email': current_user.email,
+    })
+
+
+# ─────────────────────────────────────────────
 # BOOTSTRAP
 # ─────────────────────────────────────────────
 
 def bootstrap():
     global parking_lot
+
+    # Create default admin if DB is enabled
+    if USE_DB:
+        try:
+            create_default_admin()
+        except Exception as e:
+            print(f'Admin seed error: {e}')
 
     data = load_data()
     if not data:
@@ -399,7 +507,7 @@ with app.app_context():
 # ENTRY POINT (local dev only)
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
+    port  = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_ENV', 'production') != 'production'
     print(f'Smart Parking System running at → http://localhost:{port}')
     app.run(debug=debug, host='0.0.0.0', port=port)
