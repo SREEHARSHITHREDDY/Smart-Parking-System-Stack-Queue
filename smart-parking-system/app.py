@@ -327,7 +327,7 @@ def reset():
         except Exception as e:
             db.session.rollback()
             print(f'Reset DB error: {e}')
-            return jsonify({'success': False, 'message': f'Reset failed: {str(e)}'})
+            return jsonify({'success': False, 'message': f'Reset failed: {str(e))'})
     else:
         if os.path.exists('data/parking_data.json'):
             os.remove('data/parking_data.json')
@@ -390,11 +390,16 @@ def bootstrap():
 
 
 # ─────────────────────────────────────────────
-# ENTRY POINT
+# BOOTSTRAP ON MODULE LOAD (for gunicorn)
 # ─────────────────────────────────────────────
+with app.app_context():
+    bootstrap()
 
+# ─────────────────────────────────────────────
+# ENTRY POINT (local dev only)
+# ─────────────────────────────────────────────
 if __name__ == '__main__':
-    with app.app_context():
-        bootstrap()
-    print('Smart Parking System running at → http://localhost:5000')
-    app.run(debug=True, port=5000)
+    port = int(os.getenv('PORT', 5000))
+    debug = os.getenv('FLASK_ENV', 'production') != 'production'
+    print(f'Smart Parking System running at → http://localhost:{port}')
+    app.run(debug=debug, host='0.0.0.0', port=port)
