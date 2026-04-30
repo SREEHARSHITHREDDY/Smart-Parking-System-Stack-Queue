@@ -1311,3 +1311,114 @@ function useScannedQR() {
   closeCamera();
   exitVehicle();
 }
+
+/* ══════════════════════════════════════════════════════════
+   v3.0 Day 25 — DYNAMIC PRICING RULES
+══════════════════════════════════════════════════════════ */
+
+let pricingVisible = false;
+
+async function togglePricing() {
+  pricingVisible = !pricingVisible;
+  const panel = document.getElementById('pricingPanel');
+  const btn   = document.querySelector('.btn-pricing');
+  if (pricingVisible) {
+    panel.classList.remove('hidden');
+    btn.classList.add('active');
+    await loadPricingRules();
+  } else {
+    panel.classList.add('hidden');
+    btn.classList.remove('active');
+  }
+}
+
+async function loadPricingRules() {
+  const list = document.getElementById('pricingRulesList');
+  try {
+    const res  = await fetch('/api/pricing-rules');
+    const data = await res.json();
+    if (!data.rules || data.rules.length === 0) {
+      list.innerHTML = '<div class="empty-state">No pricing rules yet. Click + ADD RULE to create one.</div>';
+      return;
+    }
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    list.innerHTML = data.rules.map(r => `
+      <div class="rule-card">
+        <div class="rule-name">${r.name}</div>
+        <div class="rule-hours">${String(r.hour_start).padStart(2,'0')}:00 – ${String(r.hour_end).padStart(2,'0')}:00</div>
+        <div class="rule-day">${r.day_of_week !== null ? days[r.day_of_week] : 'All days'}</div>
+        <div class="rule-multiplier">${r.multiplier}x</div>
+        <button class="btn-delete-rule" onclick="deleteRule(${r.id})" title="Delete rule">✕</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty-state">Could not load rules.</div>';
+  }
+}
+
+function openAddRule() {
+  document.getElementById('ruleName').value       = '';
+  document.getElementById('ruleStart').value      = '9';
+  document.getElementById('ruleEnd').value        = '11';
+  document.getElementById('ruleMultiplier').value = '1.5';
+  document.getElementById('ruleDow').value        = '';
+  document.getElementById('ruleError').textContent = '';
+  document.getElementById('addRuleOverlay').classList.remove('hidden');
+}
+
+function closeAddRule() {
+  document.getElementById('addRuleOverlay').classList.add('hidden');
+}
+
+async function saveRule() {
+  const errEl = document.getElementById('ruleError');
+  errEl.textContent = '';
+  const body = {
+    name:        document.getElementById('ruleName').value.trim(),
+    hour_start:  parseInt(document.getElementById('ruleStart').value),
+    hour_end:    parseInt(document.getElementById('ruleEnd').value),
+    multiplier:  parseFloat(document.getElementById('ruleMultiplier').value),
+    day_of_week: document.getElementById('ruleDow').value || null,
+  };
+  if (!body.name) { errEl.textContent = 'Rule name is required'; return; }
+  if (body.hour_start >= body.hour_end) { errEl.textContent = 'Start hour must be before end hour'; return; }
+  try {
+    const res  = await fetch('/api/pricing-rules', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    closeAddRule();
+    await loadPricingRules();
+    showToast('Pricing rule added', 'success');
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
+
+async function deleteRule(ruleId) {
+  try {
+    const res  = await fetch(`/api/pricing-rules/${ruleId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      await loadPricingRules();
+      showToast('Rule deleted', 'info');
+    }
+  } catch (e) { showToast('Could not delete rule', 'error'); }
+}
+
+async function checkSurgeBadge() {
+  try {
+    const res  = await fetch('/api/current-surge');
+    const data = await res.json();
+    const badge = document.getElementById('surgeBadge');
+    if (data.active) {
+      badge.textContent = `⚡ ${data.name.toUpperCase()} (${data.multiplier}x)`;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  } catch (e) {}
+}
+
+// Check surge badge every 60 seconds
+setInterval(checkSurgeBadge, 60000);
