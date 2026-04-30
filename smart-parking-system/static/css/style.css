@@ -1939,4 +1939,374 @@
 
 .qr-scan-strip.qr-detected .qr-strip-status {
   color: var(--green);
-}
+}/* ═══════════════════════════════════════════
+   v3.0 Day 25 — DYNAMIC PRICING STYLES
+   Append to bottom of style.css
+═══════════════════════════════════════════ */
+
+/* ── SURGE BADGE ─────────────────────────── */
+.surge-badge {
+    background: linear-gradient(135deg, var(--gold), #e07b20);
+    color: var(--bg-deep);
+    font-family: var(--font-display);
+    font-size: 0.58rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    padding: 5px 12px;
+    border-radius: 20px;
+    animation: surgePulse 1.5s ease-in-out infinite;
+    white-space: nowrap;
+  }
+  
+  @keyframes surgePulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(240,192,64,0.5); }
+    50%       { box-shadow: 0 0 24px rgba(240,192,64,0.9); }
+  }
+  
+  /* ── PRICING BUTTON ──────────────────────── */
+  .btn-pricing {
+    padding: 7px 16px;
+    background: transparent;
+    border: 1px solid var(--gold-dim);
+    border-radius: var(--r-sm);
+    color: var(--gold);
+    font-family: var(--font-display);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: var(--t);
+  }
+  .btn-pricing:hover {
+    background: var(--gold-soft);
+    box-shadow: 0 0 12px var(--gold-glow);
+  }
+  .btn-pricing.active {
+    background: var(--gold-soft);
+    border-color: var(--gold);
+    box-shadow: 0 0 14px var(--gold-glow);
+  }
+  
+  /* ── PRICING PANEL ───────────────────────── */
+  .pricing-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    margin: 0 24px 18px;
+    overflow: hidden;
+    animation: slideDown 0.3s ease;
+    position: relative;
+  }
+  .pricing-panel::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  }
+  
+  .pricing-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pricing-title {
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 0.12em;
+  }
+  
+  .btn-add-rule {
+    padding: 7px 16px;
+    background: var(--gold-soft);
+    border: 1px solid var(--gold);
+    border-radius: var(--r-sm);
+    color: var(--gold);
+    font-family: var(--font-display);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: var(--t);
+  }
+  .btn-add-rule:hover {
+    background: var(--gold);
+    color: var(--bg-deep);
+  }
+  
+  /* ── RULE CARDS ──────────────────────────── */
+  .pricing-rules-list {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .rule-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    border-left: 3px solid var(--gold);
+    transition: var(--t);
+  }
+  .rule-card:hover { border-color: var(--border-lit); }
+  
+  .rule-name {
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--gold);
+    flex: 1;
+  }
+  .rule-hours {
+    font-family: var(--font-data);
+    font-size: 0.72rem;
+    color: var(--text-mid);
+  }
+  .rule-multiplier {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--red);
+    min-width: 48px;
+    text-align: center;
+  }
+  .rule-day {
+    font-family: var(--font-data);
+    font-size: 0.65rem;
+    color: var(--text-lo);
+    min-width: 60px;
+  }
+  .btn-delete-rule {
+    width: 28px; height: 28px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text-lo);
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: var(--t);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .btn-delete-rule:hover {
+    border-color: var(--red);
+    color: var(--red);
+    background: var(--red-soft);
+  }
+  
+  /* ── SURGE ACTIVE ON RECEIPT ─────────────── */
+  .receipt-surge-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .surge-label {
+    font-family: var(--font-data);
+    font-size: 0.65rem;
+    color: var(--gold);
+  }
+  .surge-value {
+    font-family: var(--font-data);
+    font-size: 0.8rem;
+    color: var(--gold);
+    font-weight: 600;
+  }
+  
+  @media (max-width: 600px) {
+    .pricing-panel { margin: 0 14px 14px; }
+    .rule-card { flex-wrap: wrap; gap: 8px; }
+  }/* ═══════════════════════════════════════════
+   v3.0 Day 25 — DYNAMIC PRICING STYLES
+   Append to bottom of style.css
+═══════════════════════════════════════════ */
+
+/* ── SURGE BADGE ─────────────────────────── */
+.surge-badge {
+    background: linear-gradient(135deg, var(--gold), #e07b20);
+    color: var(--bg-deep);
+    font-family: var(--font-display);
+    font-size: 0.58rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    padding: 5px 12px;
+    border-radius: 20px;
+    animation: surgePulse 1.5s ease-in-out infinite;
+    white-space: nowrap;
+  }
+  
+  @keyframes surgePulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(240,192,64,0.5); }
+    50%       { box-shadow: 0 0 24px rgba(240,192,64,0.9); }
+  }
+  
+  /* ── PRICING BUTTON ──────────────────────── */
+  .btn-pricing {
+    padding: 7px 16px;
+    background: transparent;
+    border: 1px solid var(--gold-dim);
+    border-radius: var(--r-sm);
+    color: var(--gold);
+    font-family: var(--font-display);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: var(--t);
+  }
+  .btn-pricing:hover {
+    background: var(--gold-soft);
+    box-shadow: 0 0 12px var(--gold-glow);
+  }
+  .btn-pricing.active {
+    background: var(--gold-soft);
+    border-color: var(--gold);
+    box-shadow: 0 0 14px var(--gold-glow);
+  }
+  
+  /* ── PRICING PANEL ───────────────────────── */
+  .pricing-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    margin: 0 24px 18px;
+    overflow: hidden;
+    animation: slideDown 0.3s ease;
+    position: relative;
+  }
+  .pricing-panel::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  }
+  
+  .pricing-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pricing-title {
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--gold);
+    letter-spacing: 0.12em;
+  }
+  
+  .btn-add-rule {
+    padding: 7px 16px;
+    background: var(--gold-soft);
+    border: 1px solid var(--gold);
+    border-radius: var(--r-sm);
+    color: var(--gold);
+    font-family: var(--font-display);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: var(--t);
+  }
+  .btn-add-rule:hover {
+    background: var(--gold);
+    color: var(--bg-deep);
+  }
+  
+  /* ── RULE CARDS ──────────────────────────── */
+  .pricing-rules-list {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .rule-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    border-left: 3px solid var(--gold);
+    transition: var(--t);
+  }
+  .rule-card:hover { border-color: var(--border-lit); }
+  
+  .rule-name {
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--gold);
+    flex: 1;
+  }
+  .rule-hours {
+    font-family: var(--font-data);
+    font-size: 0.72rem;
+    color: var(--text-mid);
+  }
+  .rule-multiplier {
+    font-family: var(--font-display);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--red);
+    min-width: 48px;
+    text-align: center;
+  }
+  .rule-day {
+    font-family: var(--font-data);
+    font-size: 0.65rem;
+    color: var(--text-lo);
+    min-width: 60px;
+  }
+  .btn-delete-rule {
+    width: 28px; height: 28px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text-lo);
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: var(--t);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .btn-delete-rule:hover {
+    border-color: var(--red);
+    color: var(--red);
+    background: var(--red-soft);
+  }
+  
+  /* ── SURGE ACTIVE ON RECEIPT ─────────────── */
+  .receipt-surge-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .surge-label {
+    font-family: var(--font-data);
+    font-size: 0.65rem;
+    color: var(--gold);
+  }
+  .surge-value {
+    font-family: var(--font-data);
+    font-size: 0.8rem;
+    color: var(--gold);
+    font-weight: 600;
+  }
+  
+  @media (max-width: 600px) {
+    .pricing-panel { margin: 0 14px 14px; }
+    .rule-card { flex-wrap: wrap; gap: 8px; }
+  }
