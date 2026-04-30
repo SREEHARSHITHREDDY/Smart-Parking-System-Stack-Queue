@@ -497,6 +497,83 @@ def bootstrap():
         parking_lot = None
 
 
+
+# ─────────────────────────────────────────────
+# API: DYNAMIC PRICING RULES
+# ─────────────────────────────────────────────
+
+@app.route('/api/pricing-rules', methods=['GET'])
+@api_login_required
+def get_pricing_rules():
+    if not USE_DB:
+        return jsonify({'success': True, 'rules': []})
+    from models.db import DynamicRateRule
+    rules = DynamicRateRule.query.filter_by(lot_id=1, active=True).all()
+    return jsonify({'success': True, 'rules': [r.to_dict() for r in rules]})
+
+@app.route('/api/pricing-rules', methods=['POST'])
+@api_login_required
+def add_pricing_rule():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import DynamicRateRule, db
+    data = request.json
+    name       = data.get('name', '').strip()
+    hour_start = int(data.get('hour_start', 9))
+    hour_end   = int(data.get('hour_end', 11))
+    multiplier = float(data.get('multiplier', 1.5))
+    day_of_week = data.get('day_of_week')
+    if day_of_week is not None and day_of_week != '':
+        day_of_week = int(day_of_week)
+    else:
+        day_of_week = None
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Rule name is required'})
+    if not (0 <= hour_start <= 23) or not (0 <= hour_end <= 23):
+        return jsonify({'success': False, 'message': 'Hours must be between 0 and 23'})
+    if hour_start >= hour_end:
+        return jsonify({'success': False, 'message': 'Start hour must be before end hour'})
+    if not (1.1 <= multiplier <= 5.0):
+        return jsonify({'success': False, 'message': 'Multiplier must be between 1.1 and 5.0'})
+
+    rule = DynamicRateRule(
+        lot_id      = 1,
+        name        = name,
+        hour_start  = hour_start,
+        hour_end    = hour_end,
+        multiplier  = multiplier,
+        day_of_week = day_of_week,
+        active      = True
+    )
+    db.session.add(rule)
+    db.session.commit()
+    return jsonify({'success': True, 'rule': rule.to_dict()})
+
+@app.route('/api/pricing-rules/<int:rule_id>', methods=['DELETE'])
+@api_login_required
+def delete_pricing_rule(rule_id):
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import DynamicRateRule, db
+    rule = DynamicRateRule.query.get(rule_id)
+    if not rule:
+        return jsonify({'success': False, 'message': 'Rule not found'})
+    rule.active = False
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/current-surge')
+@api_login_required
+def current_surge():
+    if not USE_DB:
+        return jsonify({'active': False, 'multiplier': 1.0, 'name': ''})
+    from models.db import get_active_rule
+    rule = get_active_rule(1)
+    if rule:
+        return jsonify({'active': True, 'multiplier': rule.multiplier, 'name': rule.name})
+    return jsonify({'active': False, 'multiplier': 1.0, 'name': ''})
+
 # ─────────────────────────────────────────────
 # BOOTSTRAP ON MODULE LOAD (for gunicorn)
 # ─────────────────────────────────────────────
