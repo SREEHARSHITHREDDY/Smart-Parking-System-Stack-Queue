@@ -1422,3 +1422,165 @@ async function checkSurgeBadge() {
 
 // Check surge badge every 60 seconds
 setInterval(checkSurgeBadge, 60000);
+
+/* ══════════════════════════════════════════════════════════
+   v3.0 Day 27 — ADMIN DASHBOARD
+══════════════════════════════════════════════════════════ */
+
+let adminVisible   = false;
+let adminActiveTab = 'operators';
+
+// Show admin button only for admin role
+async function checkUserRole() {
+  try {
+    const res  = await fetch('/api/me');
+    const data = await res.json();
+    if (data.role === 'admin') {
+      document.getElementById('adminBtn').classList.remove('hidden');
+    }
+  } catch (e) {}
+}
+
+async function toggleAdmin() {
+  adminVisible = !adminVisible;
+  const panel = document.getElementById('adminPanel');
+  const btn   = document.getElementById('adminBtn');
+  if (adminVisible) {
+    panel.classList.remove('hidden');
+    btn.classList.add('active');
+    await loadAdminSummary();
+    await loadOperators();
+  } else {
+    panel.classList.add('hidden');
+    btn.classList.remove('active');
+  }
+}
+
+async function loadAdminSummary() {
+  try {
+    const res  = await fetch('/api/admin/summary');
+    const data = await res.json();
+    if (!data.success) return;
+    document.getElementById('adminSummary').innerHTML = `
+      <div class="admin-stat-card"><div class="admin-stat-val">${data.total_lots}</div><div class="admin-stat-lbl">TOTAL LOTS</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-val">${data.total_operators}</div><div class="admin-stat-lbl">OPERATORS</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-val">${data.total_exits}</div><div class="admin-stat-lbl">TOTAL EXITS</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-val">₹${Math.round(data.total_revenue)}</div><div class="admin-stat-lbl">TOTAL REVENUE</div></div>
+    `;
+  } catch (e) {}
+}
+
+function switchAdminTab(tab) {
+  adminActiveTab = tab;
+  document.querySelectorAll('.admin-tab').forEach((t, i) => {
+    t.classList.toggle('active', ['operators','lots'][i] === tab);
+  });
+  document.getElementById('adminTabOperators').classList.toggle('hidden', tab !== 'operators');
+  document.getElementById('adminTabLots').classList.toggle('hidden', tab !== 'lots');
+  if (tab === 'operators') loadOperators();
+  if (tab === 'lots')      loadLots();
+}
+
+async function loadOperators() {
+  const list = document.getElementById('operatorsList');
+  try {
+    const res  = await fetch('/api/admin/operators');
+    const data = await res.json();
+    if (!data.operators || data.operators.length === 0) {
+      list.innerHTML = '<div class="empty-state">No operators yet. Click + ADD OPERATOR.</div>';
+      return;
+    }
+    list.innerHTML = data.operators.map(op => `
+      <div class="operator-card">
+        <div class="op-avatar">${op.name[0].toUpperCase()}</div>
+        <div class="op-info">
+          <div class="op-name">${op.name}</div>
+          <div class="op-email">${op.email}</div>
+        </div>
+        <div class="op-lot">${op.lot_id ? 'Lot #' + op.lot_id : 'All lots'}</div>
+        <button class="btn-delete-rule" onclick="deleteOperator(${op.id})" title="Deactivate">✕</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty-state">Could not load operators.</div>';
+  }
+}
+
+async function loadLots() {
+  const list = document.getElementById('lotsList');
+  try {
+    const res  = await fetch('/api/admin/lots');
+    const data = await res.json();
+    if (!data.lots || data.lots.length === 0) {
+      list.innerHTML = '<div class="empty-state">No lots configured yet.</div>';
+      return;
+    }
+    list.innerHTML = data.lots.map(lot => `
+      <div class="operator-card">
+        <div class="op-avatar" style="background:var(--cyan-soft);color:var(--cyan);">${lot.id}</div>
+        <div class="op-info">
+          <div class="op-name">${lot.name}</div>
+          <div class="op-email">Revenue: ₹${Math.round(lot.revenue)}</div>
+        </div>
+        <div class="op-lot">${lot.multi_floor ? 'Multi-floor' : 'Single floor'}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty-state">Could not load lots.</div>';
+  }
+}
+
+function openAddOperator() {
+  document.getElementById('opName').value     = '';
+  document.getElementById('opEmail').value    = '';
+  document.getElementById('opPassword').value = '';
+  document.getElementById('opError').textContent = '';
+  document.getElementById('addOperatorOverlay').classList.remove('hidden');
+}
+
+function closeAddOperator() {
+  document.getElementById('addOperatorOverlay').classList.add('hidden');
+}
+
+async function saveOperator() {
+  const errEl = document.getElementById('opError');
+  errEl.textContent = '';
+  const body = {
+    name:     document.getElementById('opName').value.trim(),
+    email:    document.getElementById('opEmail').value.trim(),
+    password: document.getElementById('opPassword').value.trim(),
+  };
+  if (!body.name || !body.email || !body.password) {
+    errEl.textContent = 'All fields are required';
+    return;
+  }
+  try {
+    const res  = await fetch('/api/admin/operators', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    closeAddOperator();
+    await loadOperators();
+    await loadAdminSummary();
+    showToast('Operator created: ' + body.email, 'success');
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
+
+async function deleteOperator(opId) {
+  try {
+    const res  = await fetch(`/api/admin/operators/${opId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      await loadOperators();
+      await loadAdminSummary();
+      showToast('Operator deactivated', 'info');
+    }
+  } catch (e) { showToast('Could not deactivate operator', 'error'); }
+}
+
+// Run role check on load
+document.addEventListener('DOMContentLoaded', () => {
+  checkUserRole();
+});
