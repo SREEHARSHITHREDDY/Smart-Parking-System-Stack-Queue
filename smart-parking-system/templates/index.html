@@ -244,6 +244,7 @@
       </div>
       <div id="surgeBadge" class="surge-badge hidden">⚡ SURGE ACTIVE</div>
       <button class="btn-pricing" onclick="togglePricing()">⚡ PRICING</button>
+      <button class="btn-booking" onclick="toggleBooking()">📅 BOOKINGS</button>
       <button class="btn-admin hidden" id="adminBtn" onclick="toggleAdmin()">👤 ADMIN</button>
       <button class="btn-logout" onclick="window.location='/logout'">LOGOUT</button>
       <button class="btn-reset" onclick="confirmReset()">⚙ RESET</button>
@@ -509,6 +510,81 @@
       <button class="btn-primary" onclick="saveRule()">SAVE RULE</button>
       <div style="height:8px"></div>
       <button class="btn-secondary" onclick="closeAddRule()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ BOOKING PANEL ══════════ -->
+<div id="bookingPanel" class="booking-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">📅 SLOT BOOKINGS</div>
+    <button class="btn-add-rule" onclick="openAddBooking()">+ NEW BOOKING</button>
+  </div>
+  <div id="bookingsList" class="pricing-rules-list">
+    <div class="empty-state">No active bookings.</div>
+  </div>
+</div>
+
+<!-- ══════════ ADD BOOKING MODAL ══════════ -->
+<div id="addBookingOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <div class="modal-icon">📅</div>
+      <h2>NEW BOOKING</h2>
+      <p>Pre-book a parking slot in advance</p>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>VEHICLE NUMBER</label>
+        <input type="text" id="bookPlate" placeholder="TS09AB1234"
+               oninput="this.value=this.value.toUpperCase()" maxlength="11" />
+      </div>
+      <div class="form-group">
+        <label>VEHICLE TYPE</label>
+        <select id="bookType" class="floor-select">
+          <option value="car">Car — ₹30/hr</option>
+          <option value="bike">Bike — ₹15/hr</option>
+          <option value="truck">Truck — ₹60/hr</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>ARRIVAL DATE & TIME</label>
+        <input type="datetime-local" id="bookTime" />
+      </div>
+      <div class="form-group">
+        <label>PHONE (optional — for WhatsApp receipt)</label>
+        <input type="tel" id="bookPhone" placeholder="+91 9876543210" />
+      </div>
+      <div class="modal-error" id="bookError"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="saveBooking()">CONFIRM BOOKING</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="closeAddBooking()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ CHECKIN MODAL ══════════ -->
+<div id="checkinOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <div class="modal-icon">✅</div>
+      <h2>BOOKING CHECK-IN</h2>
+      <p>Enter booking reference to park immediately</p>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>BOOKING REFERENCE</label>
+        <input type="text" id="checkinRef" placeholder="e.g. A1B2C3D4"
+               oninput="this.value=this.value.toUpperCase()" maxlength="8" />
+      </div>
+      <div class="modal-error" id="checkinError"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="doCheckin()">CHECK IN NOW</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="closeCheckin()">CANCEL</button>
     </div>
   </div>
 </div>
