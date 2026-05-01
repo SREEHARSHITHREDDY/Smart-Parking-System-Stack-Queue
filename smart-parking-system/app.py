@@ -575,6 +575,148 @@ def current_surge():
     return jsonify({'active': False, 'multiplier': 1.0, 'name': ''})
 
 
+
+# ─────────────────────────────────────────────
+# API: BOOKINGS
+# ─────────────────────────────────────────────
+
+@app.route('/api/bookings', methods=['GET'])
+@api_login_required
+def get_bookings():
+    if not USE_DB:
+        return jsonify({'success': True, 'bookings': []})
+    from models.db import BookingModel
+    from datetime import datetime
+    # Auto-expire old bookings
+    expired = BookingModel.query.filter(
+        BookingModel.status == 'active',
+        BookingModel.expires_at < datetime.utcnow()
+    ).all()
+    for b in expired:
+        b.status = 'expired'
+    if expired:
+        db.session.commit()
+
+    bookings = BookingModel.query.filter_by(lot_id=1, status='active').order_by(
+        BookingModel.booked_for
+    ).all()
+    return jsonify({'success': True, 'bookings': [b.to_dict() for b in bookings]})
+
+@app.route('/api/bookings', methods=['POST'])
+@api_login_required
+def create_booking():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import BookingModel
+    from datetime import datetime, timedelta
+    import uuid
+
+    data         = request.json
+    number_plate = data.get('number_plate', '').strip().upper()
+    vehicle_type = data.get('vehicle_type', 'car').strip().lower()
+    booked_for   = data.get('booked_for', '')
+    phone        = data.get('phone', '').strip()
+
+    if not number_plate or not booked_for:
+        return jsonify({'success': False, 'message': 'Plate and booking time are required'})
+
+    if not validate_vehicle_number(number_plate):
+        return jsonify({'success': False, 'message': 'Invalid plate format'})
+
+    try:
+        booked_for_dt = datetime.fromisoformat(booked_for)
+    except Exception:
+        return jsonify({'success': False, 'message': 'Invalid date format'})
+
+    if booked_for_dt < datetime.now():
+        return jsonify({'success': False, 'message': 'Booking time must be in the future'})
+
+    # Check no duplicate active booking for same plate
+    existing = BookingModel.query.filter_by(
+        number_plate=number_plate, status='active', lot_id=1
+    ).first()
+    if existing:
+        return jsonify({'success': False, 'message': 'Active booking already exists for this plate'})
+
+    booking_ref = str(uuid.uuid4())[:8].upper()
+    expires_at  = booked_for_dt + timedelta(minutes=30)  # 30 min grace period
+
+    booking = BookingModel(
+        lot_id       = 1,
+        number_plate = number_plate,
+        vehicle_type = vehicle_type,
+        booking_ref  = booking_ref,
+        booked_for   = booked_for_dt,
+        expires_at   = expires_at,
+        phone        = phone or None,
+        status       = 'active'
+    )
+    db.session.add(booking)
+    db.session.commit()
+
+    return jsonify({
+        'success':     True,
+        'booking_ref': booking_ref,
+        'booked_for':  booked_for_dt.strftime('%d %b %Y %H:%M'),
+        'expires_at':  expires_at.strftime('%H:%M'),
+        'booking':     booking.to_dict()
+    })
+
+@app.route('/api/bookings/<int:booking_id>/cancel', methods=['POST'])
+@api_login_required
+def cancel_booking(booking_id):
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import BookingModel
+    booking = BookingModel.query.get(booking_id)
+    if not booking:
+        return jsonify({'success': False, 'message': 'Booking not found'})
+    booking.status = 'cancelled'
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/bookings/checkin', methods=['POST'])
+@api_login_required
+def checkin_booking():
+    """Use a booking reference to park the vehicle immediately."""
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import BookingModel
+    from datetime import datetime
+
+    booking_ref = request.json.get('booking_ref', '').strip().upper()
+    booking = BookingModel.query.filter_by(
+        booking_ref=booking_ref, status='active'
+    ).first()
+
+    if not booking:
+        return jsonify({'success': False, 'message': 'Booking not found or already used'})
+
+    if booking.expires_at < datetime.utcnow():
+        booking.status = 'expired'
+        db.session.commit()
+        return jsonify({'success': False, 'message': 'Booking has expired'})
+
+    # Park the vehicle
+    vehicle = Vehicle(booking.number_plate, booking.vehicle_type)
+    result  = parking_lot.park_vehicle(vehicle)
+    booking.status  = 'used'
+    booking.slot_id = result.get('slot')
+    db.session.commit()
+    save_data(parking_lot)
+
+    return jsonify({
+        'success':      True,
+        'queued':       result.get('queued', False),
+        'slot':         result.get('slot'),
+        'ticket_id':    vehicle.ticket_id,
+        'qr_data':      vehicle.qr_data,
+        'number_plate': vehicle.number_plate,
+        'entry_time':   vehicle.entry_time.strftime('%H:%M:%S'),
+        'nearly_full':  result.get('nearly_full', False),
+        'manual_slot':  False
+    })
+
 # ─────────────────────────────────────────────
 # API: ADMIN — OPERATOR MANAGEMENT
 # ─────────────────────────────────────────────
