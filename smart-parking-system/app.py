@@ -574,6 +574,90 @@ def current_surge():
         return jsonify({'active': True, 'multiplier': rule.multiplier, 'name': rule.name})
     return jsonify({'active': False, 'multiplier': 1.0, 'name': ''})
 
+
+# ─────────────────────────────────────────────
+# API: ADMIN — OPERATOR MANAGEMENT
+# ─────────────────────────────────────────────
+
+@app.route('/api/admin/operators', methods=['GET'])
+@api_login_required
+def get_operators():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+    operators = UserModel.query.filter_by(role='operator').all()
+    return jsonify({'success': True, 'operators': [o.to_dict() for o in operators]})
+
+@app.route('/api/admin/operators', methods=['POST'])
+@api_login_required
+def create_operator():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+    data     = request.json
+    email    = data.get('email', '').strip().lower()
+    name     = data.get('name', '').strip()
+    password = data.get('password', '').strip()
+    lot_id   = data.get('lot_id')
+    if not email or not name or not password:
+        return jsonify({'success': False, 'message': 'Email, name and password are required'})
+    if len(password) < 6:
+        return jsonify({'success': False, 'message': 'Password must be at least 6 characters'})
+    existing = UserModel.query.filter_by(email=email).first()
+    if existing:
+        return jsonify({'success': False, 'message': 'Email already in use'})
+    user = UserModel(email=email, name=name, role='operator', lot_id=lot_id)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({'success': True, 'operator': user.to_dict()})
+
+@app.route('/api/admin/operators/<int:op_id>', methods=['DELETE'])
+@api_login_required
+def delete_operator(op_id):
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+    user = UserModel.query.get(op_id)
+    if not user:
+        return jsonify({'success': False, 'message': 'Operator not found'})
+    user.active = False
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/admin/lots', methods=['GET'])
+@api_login_required
+def get_lots():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+    lots = ParkingLotModel.query.all()
+    return jsonify({'success': True, 'lots': [l.to_dict() for l in lots]})
+
+@app.route('/api/admin/summary', methods=['GET'])
+@api_login_required
+def admin_summary():
+    if not USE_DB:
+        return jsonify({'success': False})
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+    from models.db import ParkingLotModel, HistoryModel
+    lots        = ParkingLotModel.query.all()
+    total_rev   = sum(l.revenue for l in lots)
+    total_exits = HistoryModel.query.count()
+    operators   = UserModel.query.filter_by(role='operator', active=True).count()
+    return jsonify({
+        'success':      True,
+        'total_lots':   len(lots),
+        'total_revenue':total_rev,
+        'total_exits':  total_exits,
+        'total_operators': operators,
+    })
+
 # ─────────────────────────────────────────────
 # BOOTSTRAP ON MODULE LOAD (for gunicorn)
 # ─────────────────────────────────────────────
@@ -584,7 +668,7 @@ with app.app_context():
 # ENTRY POINT (local dev only)
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
-    port  = int(os.getenv('PORT', 5001))
+    port  = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_ENV', 'production') != 'production'
     print(f'Smart Parking System running at → http://localhost:{port}')
     app.run(debug=debug, host='0.0.0.0', port=port)
