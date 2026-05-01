@@ -228,3 +228,38 @@ def seed_default_rules(lot_id):
     for r in rules:
         db.session.add(r)
     db.session.commit()
+
+
+# ─────────────────────────────────────────────
+# BOOKING (pre-book a slot in advance)
+# ─────────────────────────────────────────────
+
+class BookingModel(db.Model):
+    __tablename__ = 'bookings'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    lot_id        = db.Column(db.Integer, db.ForeignKey('parking_lots.id'), nullable=False)
+    number_plate  = db.Column(db.String(16), nullable=False)
+    vehicle_type  = db.Column(db.String(16), nullable=False, default='car')
+    booking_ref   = db.Column(db.String(8),  nullable=False, unique=True)
+    slot_id       = db.Column(db.String(32), nullable=True)   # assigned slot (optional)
+    booked_for    = db.Column(db.DateTime,   nullable=False)  # when they plan to arrive
+    expires_at    = db.Column(db.DateTime,   nullable=False)  # auto-cancel after this
+    status        = db.Column(db.String(16), default='active')  # active | used | cancelled | expired
+    created_at    = db.Column(db.DateTime,   default=datetime.utcnow)
+    phone         = db.Column(db.String(16), nullable=True)   # for WhatsApp receipt later
+
+    def to_dict(self):
+        return {
+            'id':           self.id,
+            'lot_id':       self.lot_id,
+            'number_plate': self.number_plate,
+            'vehicle_type': self.vehicle_type,
+            'booking_ref':  self.booking_ref,
+            'slot_id':      self.slot_id,
+            'booked_for':   self.booked_for.isoformat(),
+            'expires_at':   self.expires_at.isoformat(),
+            'status':       self.status,
+            'phone':        self.phone,
+            'created_at':   self.created_at.isoformat(),
+        }
