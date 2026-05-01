@@ -1584,3 +1584,170 @@ async function deleteOperator(opId) {
 document.addEventListener('DOMContentLoaded', () => {
   checkUserRole();
 });
+
+/* ══════════════════════════════════════════════════════════
+   v3.0 Day 28 — BOOKING SYSTEM
+══════════════════════════════════════════════════════════ */
+
+let bookingVisible = false;
+
+async function toggleBooking() {
+  bookingVisible = !bookingVisible;
+  const panel = document.getElementById('bookingPanel');
+  const btn   = document.querySelector('.btn-booking');
+  if (bookingVisible) {
+    panel.classList.remove('hidden');
+    btn.classList.add('active');
+    await loadBookings();
+  } else {
+    panel.classList.add('hidden');
+    btn.classList.remove('active');
+  }
+}
+
+async function loadBookings() {
+  const list = document.getElementById('bookingsList');
+  try {
+    const res  = await fetch('/api/bookings');
+    const data = await res.json();
+    if (!data.bookings || data.bookings.length === 0) {
+      list.innerHTML = '<div class="empty-state">No active bookings. Click + NEW BOOKING to create one.</div>';
+      return;
+    }
+    list.innerHTML = data.bookings.map(b => {
+      const arrivalDate = new Date(b.booked_for);
+      const arrivalStr  = arrivalDate.toLocaleString('en-IN', {
+        day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'
+      });
+      return `
+        <div class="rule-card">
+          <div style="display:flex;flex-direction:column;gap:2px;flex:1;">
+            <div class="rule-name">${b.number_plate}</div>
+            <div class="rule-hours">${b.vehicle_type.toUpperCase()} · Ref: <b>${b.booking_ref}</b></div>
+          </div>
+          <div class="rule-day">${arrivalStr}</div>
+          <button class="btn-add-rule" style="font-size:0.56rem;padding:5px 10px;"
+                  onclick="openCheckin('${b.booking_ref}')">CHECK IN</button>
+          <button class="btn-delete-rule" onclick="cancelBooking(${b.id})" title="Cancel">✕</button>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty-state">Could not load bookings.</div>';
+  }
+}
+
+function openAddBooking() {
+  // Set default time to 1 hour from now
+  const now = new Date();
+  now.setHours(now.getHours() + 1);
+  const local = new Date(now - now.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 16);
+  document.getElementById('bookPlate').value = '';
+  document.getElementById('bookTime').value  = local;
+  document.getElementById('bookPhone').value = '';
+  document.getElementById('bookError').textContent = '';
+  document.getElementById('addBookingOverlay').classList.remove('hidden');
+}
+
+function closeAddBooking() {
+  document.getElementById('addBookingOverlay').classList.add('hidden');
+}
+
+async function saveBooking() {
+  const errEl = document.getElementById('bookError');
+  errEl.textContent = '';
+  const body = {
+    number_plate: document.getElementById('bookPlate').value.trim().toUpperCase(),
+    vehicle_type: document.getElementById('bookType').value,
+    booked_for:   document.getElementById('bookTime').value,
+    phone:        document.getElementById('bookPhone').value.trim(),
+  };
+  if (!body.number_plate || !body.booked_for) {
+    errEl.textContent = 'Plate and arrival time are required';
+    return;
+  }
+  try {
+    const res  = await fetch('/api/bookings', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    closeAddBooking();
+    await loadBookings();
+    showToast(`Booking confirmed: ${data.booking_ref}`, 'success');
+    // Show booking receipt
+    showBookingReceipt(data, body.number_plate);
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
+
+function showBookingReceipt(data, plate) {
+  document.getElementById('receiptIcon').textContent  = '📅';
+  document.getElementById('receiptTitle').textContent = 'BOOKING CONFIRMED';
+  document.getElementById('receiptBody').innerHTML = `
+    <div class="receipt-row">
+      <span class="r-label">Vehicle Number</span>
+      <span class="r-value">${plate}</span>
+    </div>
+    <div class="receipt-row">
+      <span class="r-label">Booking Reference</span>
+      <span class="r-value" style="color:var(--gold);font-size:1.1rem;">${data.booking_ref}</span>
+    </div>
+    <div class="receipt-row">
+      <span class="r-label">Arrival Time</span>
+      <span class="r-value">${data.booked_for}</span>
+    </div>
+    <div class="receipt-row">
+      <span class="r-label">Valid Until</span>
+      <span class="r-value">${data.expires_at} (30 min grace)</span>
+    </div>
+    <div class="receipt-row">
+      <span class="r-label">Check-in</span>
+      <span class="r-value">Show reference at gate</span>
+    </div>
+  `;
+  document.getElementById('qrReceiptSection').classList.add('hidden');
+  document.getElementById('receiptOverlay').classList.remove('hidden');
+}
+
+async function cancelBooking(bookingId) {
+  try {
+    const res  = await fetch(`/api/bookings/${bookingId}/cancel`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      await loadBookings();
+      showToast('Booking cancelled', 'info');
+    }
+  } catch (e) { showToast('Could not cancel booking', 'error'); }
+}
+
+function openCheckin(ref) {
+  document.getElementById('checkinRef').value = ref || '';
+  document.getElementById('checkinError').textContent = '';
+  document.getElementById('checkinOverlay').classList.remove('hidden');
+}
+
+function closeCheckin() {
+  document.getElementById('checkinOverlay').classList.add('hidden');
+}
+
+async function doCheckin() {
+  const errEl = document.getElementById('checkinError');
+  errEl.textContent = '';
+  const ref = document.getElementById('checkinRef').value.trim().toUpperCase();
+  if (!ref) { errEl.textContent = 'Enter booking reference'; return; }
+  try {
+    const res  = await fetch('/api/bookings/checkin', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ booking_ref: ref })
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    closeCheckin();
+    await loadBookings();
+    pollStatus();
+    showEntryReceipt(data, false);
+    showToast(`Checked in: ${data.number_plate} → Slot ${data.slot}`, 'success');
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
