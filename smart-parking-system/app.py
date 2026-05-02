@@ -123,6 +123,22 @@ def index():
     return render_template('index.html')
 
 
+
+# ─────────────────────────────────────────────
+# PWA ROUTES — serve manifest and service worker
+# ─────────────────────────────────────────────
+
+@app.route('/manifest.json')
+def manifest():
+    return app.send_static_file('manifest.json')
+
+@app.route('/sw.js')
+def service_worker():
+    from flask import send_from_directory, Response
+    with open(os.path.join(app.root_path, 'sw.js')) as f:
+        content_sw = f.read()
+    return Response(content_sw, mimetype='application/javascript')
+
 # ─────────────────────────────────────────────
 # API: STATUS
 # ─────────────────────────────────────────────
@@ -810,7 +826,7 @@ with app.app_context():
 # ENTRY POINT (local dev only)
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
-    port  = int(os.getenv('PORT', 5001))
+    port  = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_ENV', 'production') != 'production'
     print(f'Smart Parking System running at → http://localhost:{port}')
     app.run(debug=debug, host='0.0.0.0', port=port)
