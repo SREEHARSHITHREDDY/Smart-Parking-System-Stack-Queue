@@ -969,7 +969,7 @@ with app.app_context():
 # ENTRY POINT (local dev only)
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
-    port  = int(os.getenv('PORT', 5000))
+    port  = int(os.getenv('PORT', 5001))
     debug = os.getenv('FLASK_ENV', 'production') != 'production'
     print(f'Smart Parking System running at → http://localhost:{port}')
     app.run(debug=debug, host='0.0.0.0', port=port)
