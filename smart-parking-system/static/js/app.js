@@ -1751,3 +1751,84 @@ async function doCheckin() {
     showToast(`Checked in: ${data.number_plate} → Slot ${data.slot}`, 'success');
   } catch (e) { errEl.textContent = 'Server error. Try again.'; }
 }
+
+/* ══════════════════════════════════════════════════════════
+   v3.0 Day 30 — AI PEAK PREDICTION
+══════════════════════════════════════════════════════════ */
+
+let aiVisible = false;
+
+async function toggleAI() {
+  aiVisible = !aiVisible;
+  const panel = document.getElementById('aiPanel');
+  const btn   = document.querySelector('.btn-ai');
+  if (aiVisible) {
+    panel.classList.remove('hidden');
+    btn.classList.add('active');
+    await loadPrediction();
+  } else {
+    panel.classList.add('hidden');
+    btn.classList.remove('active');
+  }
+}
+
+async function loadPrediction() {
+  const content = document.getElementById('aiContent');
+  content.innerHTML = '<div class="empty-state">Analysing history data…</div>';
+  try {
+    const res  = await fetch('/api/prediction');
+    const data = await res.json();
+
+    if (!data.success) {
+      content.innerHTML = '<div class="empty-state">Could not load prediction.</div>';
+      return;
+    }
+
+    if (data.data_points < 5) {
+      content.innerHTML = `<div class="empty-state">Not enough data yet (${data.data_points} exits recorded). Need at least 5 exits for prediction.</div>`;
+      return;
+    }
+
+    const best    = data.best_time;
+    const pred    = data.prediction;
+    const levels  = { peak: 'var(--red)', normal: 'var(--gold)', quiet: 'var(--green)' };
+    const labels  = { peak: '🔴 PEAK', normal: '🟡 BUSY', quiet: '🟢 QUIET' };
+
+    // Best time card
+    let html = '';
+    if (best) {
+      html += `
+        <div style="background:var(--bg-surface);border:1px solid var(--green);border-radius:var(--r-md);padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:14px;">
+          <div style="font-size:1.6rem;">✨</div>
+          <div>
+            <div style="font-family:var(--font-display);font-size:0.65rem;color:var(--green);letter-spacing:0.1em;margin-bottom:4px;">BEST TIME TO PARK (next 6 hrs)</div>
+            <div style="font-family:var(--font-display);font-size:1rem;font-weight:700;color:var(--text-hi);">${best.label}</div>
+            <div style="font-family:var(--font-data);font-size:0.65rem;color:var(--text-lo);">Predicted ${best.predicted} vehicles · ${labels[best.level]}</div>
+          </div>
+        </div>`;
+    }
+
+    // 24-hour bar chart
+    html += `<div style="font-family:var(--font-display);font-size:0.58rem;letter-spacing:0.12em;color:var(--text-lo);margin-bottom:12px;">NEXT 24 HOURS</div>`;
+    html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
+
+    const maxPred = Math.max(...pred.map(p => p.predicted), 1);
+    pred.forEach(p => {
+      const pct   = Math.round((p.predicted / maxPred) * 100);
+      const color = levels[p.level];
+      html += `
+        <div style="display:grid;grid-template-columns:80px 1fr 50px;align-items:center;gap:10px;">
+          <div style="font-family:var(--font-data);font-size:0.65rem;color:var(--text-mid);">${p.label}</div>
+          <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:width 0.6s ease;"></div>
+          </div>
+          <div style="font-family:var(--font-display);font-size:0.6rem;color:${color};text-align:right;">${labels[p.level]}</div>
+        </div>`;
+    });
+    html += '</div>';
+
+    content.innerHTML = html;
+  } catch (e) {
+    content.innerHTML = '<div class="empty-state">Could not load prediction.</div>';
+  }
+}
