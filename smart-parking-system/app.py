@@ -514,6 +514,28 @@ def bootstrap():
 
 
 
+
+# ─────────────────────────────────────────────
+# API: AI PREDICTION
+# ─────────────────────────────────────────────
+
+@app.route('/api/prediction')
+@api_login_required
+def prediction():
+    if not parking_lot:
+        return jsonify({'success': False, 'prediction': []})
+    from core.predictor import predict_peak_hours, get_best_time_to_park
+    pred       = predict_peak_hours(parking_lot.history)
+    best_time  = get_best_time_to_park(pred)
+    peak_hours = [p for p in pred if p['level'] == 'peak']
+    return jsonify({
+        'success':    True,
+        'prediction': pred,
+        'best_time':  best_time,
+        'peak_count': len(peak_hours),
+        'data_points': len(parking_lot.history),
+    })
+
 # ─────────────────────────────────────────────
 # API: DYNAMIC PRICING RULES
 # ─────────────────────────────────────────────
@@ -826,7 +848,7 @@ with app.app_context():
 # ENTRY POINT (local dev only)
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
-    port  = int(os.getenv('PORT', 5000))
+    port  = int(os.getenv('PORT', 5001))
     debug = os.getenv('FLASK_ENV', 'production') != 'production'
     print(f'Smart Parking System running at → http://localhost:{port}')
     app.run(debug=debug, host='0.0.0.0', port=port)
