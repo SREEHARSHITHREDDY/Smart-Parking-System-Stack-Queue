@@ -277,6 +277,7 @@
       </div>
       <div id="surgeBadge" class="surge-badge hidden">⚡ SURGE ACTIVE</div>
       <button class="btn-pricing" onclick="togglePricing()">⚡ PRICING</button>
+      <button class="btn-ev" onclick="toggleEV()">⚡ EV</button>
       <button class="btn-ai" onclick="toggleAI()">🧠 AI</button>
       <button class="btn-booking" onclick="toggleBooking()">📅 BOOKINGS</button>
       <button class="btn-admin hidden" id="adminBtn" onclick="toggleAdmin()">👤 ADMIN</button>
@@ -547,7 +548,85 @@
   </div>
 </div>
 
-  <!-- ══════════ AI PREDICTION PANEL ══════════ -->
+  <!-- ══════════ EV CHARGING PANEL ══════════ -->
+<div id="evPanel" class="ev-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">⚡ EV CHARGING SESSIONS</div>
+    <button class="btn-add-rule" onclick="openStartCharging()">+ START CHARGING</button>
+  </div>
+  <div id="evActiveList" class="pricing-rules-list">
+    <div class="empty-state">No active charging sessions.</div>
+  </div>
+</div>
+
+<!-- ══════════ START CHARGING MODAL ══════════ -->
+<div id="startChargingOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <div class="modal-icon">⚡</div>
+      <h2>START EV CHARGING</h2>
+      <p>Link a charging session to a parked vehicle</p>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>TICKET ID</label>
+        <input type="text" id="evTicket" placeholder="e.g. A1B2C3D4"
+               oninput="this.value=this.value.toUpperCase()" maxlength="8" />
+      </div>
+      <div class="form-group">
+        <label>SLOT ID</label>
+        <input type="text" id="evSlot" placeholder="e.g. A1"
+               oninput="this.value=this.value.toUpperCase()" />
+      </div>
+      <div class="form-group">
+        <label>VEHICLE NUMBER</label>
+        <input type="text" id="evPlate" placeholder="e.g. TS09AB1234"
+               oninput="this.value=this.value.toUpperCase()" />
+      </div>
+      <div class="form-group">
+        <label>RATE (Rs per kWh)</label>
+        <input type="number" id="evRate" value="12" min="1" max="100" step="0.5" />
+        <span class="hint">Default: Rs 12/kWh</span>
+      </div>
+      <div class="modal-error" id="evError"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="startCharging()">START CHARGING</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="closeStartCharging()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ STOP CHARGING MODAL ══════════ -->
+<div id="stopChargingOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <div class="modal-icon">🔋</div>
+      <h2>STOP CHARGING</h2>
+      <p>Enter kWh delivered to calculate fee</p>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>TICKET ID</label>
+        <input type="text" id="stopEvTicket" placeholder="e.g. A1B2C3D4"
+               oninput="this.value=this.value.toUpperCase()" maxlength="8" />
+      </div>
+      <div class="form-group">
+        <label>kWh DELIVERED</label>
+        <input type="number" id="evKwh" placeholder="e.g. 15.5" min="0.1" step="0.1" />
+      </div>
+      <div class="modal-error" id="stopEvError"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="stopCharging()">STOP AND CALCULATE</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="closeStopCharging()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ AI PREDICTION PANEL ══════════ -->
 <div id="aiPanel" class="ai-panel hidden">
   <div class="pricing-header">
     <div class="pricing-title">🧠 AI PEAK HOUR PREDICTION</div>
