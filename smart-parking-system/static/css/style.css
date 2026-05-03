@@ -2552,3 +2552,36 @@
   position: absolute; top: 0; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, transparent, var(--green), transparent);
 }
+
+/* ── EV BUTTON + PANEL ───────────────────── */
+.btn-ev {
+  padding: 7px 16px;
+  background: transparent;
+  border: 1px solid var(--gold-dim);
+  border-radius: var(--r-sm);
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: var(--t);
+}
+.btn-ev:hover, .btn-ev.active {
+  background: var(--gold-soft);
+  box-shadow: 0 0 12px var(--gold-glow);
+}
+.ev-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  margin: 0 24px 18px;
+  overflow: hidden;
+  animation: slideDown 0.3s ease;
+  position: relative;
+}
+.ev-panel::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
