@@ -277,6 +277,7 @@
       </div>
       <div id="surgeBadge" class="surge-badge hidden">⚡ SURGE ACTIVE</div>
       <button class="btn-pricing" onclick="togglePricing()">⚡ PRICING</button>
+      <button class="btn-ai" onclick="toggleAI()">🧠 AI</button>
       <button class="btn-booking" onclick="toggleBooking()">📅 BOOKINGS</button>
       <button class="btn-admin hidden" id="adminBtn" onclick="toggleAdmin()">👤 ADMIN</button>
       <button class="btn-logout" onclick="window.location='/logout'">LOGOUT</button>
@@ -546,7 +547,18 @@
   </div>
 </div>
 
-  <!-- ══════════ BOOKING PANEL ══════════ -->
+  <!-- ══════════ AI PREDICTION PANEL ══════════ -->
+<div id="aiPanel" class="ai-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">🧠 AI PEAK HOUR PREDICTION</div>
+    <button class="btn-add-rule" onclick="loadPrediction()">↻ REFRESH</button>
+  </div>
+  <div id="aiContent" style="padding:16px 20px;">
+    <div class="empty-state">Click REFRESH to load prediction.</div>
+  </div>
+</div>
+
+<!-- ══════════ BOOKING PANEL ══════════ -->
 <div id="bookingPanel" class="booking-panel hidden">
   <div class="pricing-header">
     <div class="pricing-title">📅 SLOT BOOKINGS</div>
