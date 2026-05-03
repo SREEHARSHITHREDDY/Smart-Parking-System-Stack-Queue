@@ -263,3 +263,37 @@ class BookingModel(db.Model):
             'phone':        self.phone,
             'created_at':   self.created_at.isoformat(),
         }
+
+
+# ─────────────────────────────────────────────
+# EV CHARGING SESSION  (Day 31)
+# ─────────────────────────────────────────────
+
+class EVChargingSession(db.Model):
+    __tablename__ = 'ev_charging_sessions'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    lot_id        = db.Column(db.Integer, db.ForeignKey('parking_lots.id'), nullable=False)
+    slot_id       = db.Column(db.String(32), nullable=False)
+    ticket_id     = db.Column(db.String(8),  nullable=False)
+    number_plate  = db.Column(db.String(16), nullable=False)
+    kwh_rate      = db.Column(db.Float, nullable=False, default=12.0)  # ₹ per kWh
+    kwh_delivered = db.Column(db.Float, nullable=True)                  # filled at exit
+    charging_fee  = db.Column(db.Float, nullable=True)
+    start_time    = db.Column(db.DateTime, default=datetime.utcnow)
+    end_time      = db.Column(db.DateTime, nullable=True)
+    status        = db.Column(db.String(16), default='charging')        # charging | completed
+
+    def to_dict(self):
+        return {
+            'id':            self.id,
+            'slot_id':       self.slot_id,
+            'ticket_id':     self.ticket_id,
+            'number_plate':  self.number_plate,
+            'kwh_rate':      self.kwh_rate,
+            'kwh_delivered': self.kwh_delivered,
+            'charging_fee':  self.charging_fee,
+            'start_time':    self.start_time.isoformat(),
+            'end_time':      self.end_time.isoformat() if self.end_time else None,
+            'status':        self.status,
+        }
