@@ -2518,3 +2518,37 @@
   background: var(--cyan-soft);
   box-shadow: 0 0 12px var(--cyan-glow);
 }
+
+/* ── AI BUTTON ───────────────────────────── */
+.btn-ai {
+  padding: 7px 16px;
+  background: transparent;
+  border: 1px solid var(--green-dim);
+  border-radius: var(--r-sm);
+  color: var(--green);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: var(--t);
+}
+.btn-ai:hover, .btn-ai.active {
+  background: var(--green-soft);
+  box-shadow: 0 0 12px rgba(0,229,160,0.3);
+}
+
+.ai-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  margin: 0 24px 18px;
+  overflow: hidden;
+  animation: slideDown 0.3s ease;
+  position: relative;
+}
+.ai-panel::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--green), transparent);
+}
