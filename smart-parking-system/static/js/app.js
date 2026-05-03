@@ -1832,3 +1832,157 @@ async function loadPrediction() {
     content.innerHTML = '<div class="empty-state">Could not load prediction.</div>';
   }
 }
+
+/* ══════════════════════════════════════════════════════════
+   v3.0 Day 31 — EV CHARGING
+══════════════════════════════════════════════════════════ */
+
+let evVisible = false;
+
+async function toggleEV() {
+  evVisible = !evVisible;
+  const panel = document.getElementById('evPanel');
+  const btn   = document.querySelector('.btn-ev');
+  if (evVisible) {
+    panel.classList.remove('hidden');
+    btn.classList.add('active');
+    await loadEVSessions();
+  } else {
+    panel.classList.add('hidden');
+    btn.classList.remove('active');
+  }
+}
+
+async function loadEVSessions() {
+  const list = document.getElementById('evActiveList');
+  try {
+    const res  = await fetch('/api/ev/active');
+    const data = await res.json();
+    if (!data.sessions || data.sessions.length === 0) {
+      list.innerHTML = '<div class="empty-state">No active charging sessions. Click + START CHARGING.</div>';
+      return;
+    }
+    list.innerHTML = data.sessions.map(s => {
+      const start   = new Date(s.start_time);
+      const elapsed = Math.round((Date.now() - start) / 60000);
+      return `
+        <div class="rule-card">
+          <div style="font-size:1.2rem;">⚡</div>
+          <div style="flex:1;">
+            <div class="rule-name">${s.number_plate} — Slot ${s.slot_id}</div>
+            <div class="rule-hours">Ticket: ${s.ticket_id} · ${elapsed} min · ₹${s.kwh_rate}/kWh</div>
+          </div>
+          <button class="btn-add-rule" style="font-size:0.56rem;padding:5px 10px;"
+                  onclick="openStopCharging('${s.ticket_id}')">STOP</button>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty-state">Could not load sessions.</div>';
+  }
+}
+
+function openStartCharging() {
+  document.getElementById('evTicket').value = '';
+  document.getElementById('evSlot').value   = '';
+  document.getElementById('evPlate').value  = '';
+  document.getElementById('evRate').value   = '12';
+  document.getElementById('evError').textContent = '';
+  document.getElementById('startChargingOverlay').classList.remove('hidden');
+}
+
+function closeStartCharging() {
+  document.getElementById('startChargingOverlay').classList.add('hidden');
+}
+
+async function startCharging() {
+  const errEl = document.getElementById('evError');
+  errEl.textContent = '';
+  const body = {
+    ticket_id:    document.getElementById('evTicket').value.trim().toUpperCase(),
+    slot_id:      document.getElementById('evSlot').value.trim().toUpperCase(),
+    number_plate: document.getElementById('evPlate').value.trim().toUpperCase(),
+    kwh_rate:     parseFloat(document.getElementById('evRate').value),
+  };
+  if (!body.ticket_id || !body.slot_id) {
+    errEl.textContent = 'Ticket ID and Slot ID are required';
+    return;
+  }
+  try {
+    const res  = await fetch('/api/ev/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    closeStartCharging();
+    await loadEVSessions();
+    showToast('EV charging started — ₹' + body.kwh_rate + '/kWh', 'success');
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
+
+function openStopCharging(ticketId) {
+  document.getElementById('stopEvTicket').value = ticketId || '';
+  document.getElementById('evKwh').value        = '';
+  document.getElementById('stopEvError').textContent = '';
+  document.getElementById('stopChargingOverlay').classList.remove('hidden');
+}
+
+function closeStopCharging() {
+  document.getElementById('stopChargingOverlay').classList.add('hidden');
+}
+
+async function stopCharging() {
+  const errEl = document.getElementById('stopEvError');
+  errEl.textContent = '';
+  const body = {
+    ticket_id:     document.getElementById('stopEvTicket').value.trim().toUpperCase(),
+    kwh_delivered: parseFloat(document.getElementById('evKwh').value),
+  };
+  if (!body.ticket_id || !body.kwh_delivered) {
+    errEl.textContent = 'Ticket ID and kWh delivered are required';
+    return;
+  }
+  try {
+    const res  = await fetch('/api/ev/stop', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    closeStopCharging();
+    await loadEVSessions();
+    showToast(`Charging complete — ${data.kwh_delivered} kWh — ₹${data.charging_fee}`, 'success');
+    // Show EV receipt
+    showEVReceipt(data, body.ticket_id);
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
+
+function showEVReceipt(data, ticketId) {
+  document.getElementById('receiptIcon').textContent  = '⚡';
+  document.getElementById('receiptTitle').textContent = 'EV CHARGING RECEIPT';
+  document.getElementById('receiptBody').innerHTML = `
+    <div class="receipt-row">
+      <span class="r-label">Ticket ID</span>
+      <span class="r-value">${ticketId}</span>
+    </div>
+    <div class="receipt-row">
+      <span class="r-label">Energy Delivered</span>
+      <span class="r-value">${data.kwh_delivered} kWh</span>
+    </div>
+    <div class="receipt-row">
+      <span class="r-label">Rate</span>
+      <span class="r-value">₹${data.kwh_rate}/kWh</span>
+    </div>
+    <div class="receipt-row">
+      <span class="r-label">Duration</span>
+      <span class="r-value">${data.duration_min} min</span>
+    </div>
+    <div class="receipt-row total">
+      <span class="r-label">CHARGING FEE</span>
+      <span class="r-value">₹${data.charging_fee}</span>
+    </div>
+  `;
+  document.getElementById('qrReceiptSection').classList.add('hidden');
+  document.getElementById('receiptOverlay').classList.remove('hidden');
+}
