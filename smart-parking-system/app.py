@@ -6,6 +6,7 @@ from models.vehicle import Vehicle
 from core.parking_lot import ParkingLot
 from core.billing import Billing
 from core.utils import validate_vehicle_number
+from core.security import sanitize_plate, sanitize_string, sanitize_float
 
 load_dotenv()
 
@@ -29,12 +30,34 @@ else:
     USE_DB = False
     print('⚠ DATABASE_URL not set — using JSON file storage')
 
+# ── Security Headers ─────────────────────────────────────────
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options']    = 'nosniff'
+    response.headers['X-Frame-Options']           = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection']          = '1; mode=block'
+    response.headers['Referrer-Policy']           = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy']        = 'geolocation=(), microphone=()'
+    if os.getenv('FLASK_ENV') == 'production':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
+
 # ── Flask-Login ───────────────────────────────────────────────
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# ── Rate Limiter ──────────────────────────────────────────
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per minute"],
+    storage_uri="memory://"
+)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -65,6 +88,7 @@ def login_exempt(f):
 # ─────────────────────────────────────────────
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
 def login():
     # If DB not enabled — skip auth, go straight to app
     if not USE_DB:
@@ -278,6 +302,7 @@ def save_slot_positions():
 
 @app.route('/api/park', methods=['POST'])
 @api_login_required
+@limiter.limit("30 per minute")
 def park():
     global parking_lot
 
@@ -285,10 +310,10 @@ def park():
         return jsonify({'success': False, 'message': 'Parking lot not configured yet'})
 
     data            = request.json
-    number_plate    = data.get('number_plate', '').strip().upper()
-    vehicle_type    = data.get('vehicle_type', 'car').strip().lower()
-    preferred_slot  = data.get('preferred_slot', '').strip().upper()
-    preferred_floor = data.get('preferred_floor', '').strip()
+    number_plate    = sanitize_plate(data.get('number_plate', ''))
+    vehicle_type    = sanitize_string(data.get('vehicle_type', 'car'), 16).lower()
+    preferred_slot  = sanitize_plate(data.get('preferred_slot', ''))
+    preferred_floor = sanitize_string(data.get('preferred_floor', ''), 64)
 
     if not validate_vehicle_number(number_plate):
         return jsonify({'success': False, 'message': 'Invalid format. Use: AA00AA0000 (e.g. TS09AB1234)'})
@@ -363,13 +388,14 @@ def park():
 
 @app.route('/api/exit', methods=['POST'])
 @api_login_required
+@limiter.limit("30 per minute")
 def exit_vehicle():
     global parking_lot
 
     if not parking_lot:
         return jsonify({'success': False, 'message': 'Parking lot not configured yet'})
 
-    identifier = request.json.get('identifier', '').strip().upper()
+    identifier = sanitize_plate(request.json.get('identifier', ''))
     if not identifier:
         return jsonify({'success': False, 'message': 'Please enter Ticket ID or Vehicle Number'})
 
