@@ -515,6 +515,101 @@ def bootstrap():
 
 
 
+
+# ─────────────────────────────────────────────
+# API: EV CHARGING
+# ─────────────────────────────────────────────
+
+@app.route('/api/ev/start', methods=['POST'])
+@api_login_required
+def ev_start():
+    """Start a charging session when an EV parks."""
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import EVChargingSession
+    data         = request.json
+    slot_id      = data.get('slot_id', '').strip().upper()
+    ticket_id    = data.get('ticket_id', '').strip().upper()
+    number_plate = data.get('number_plate', '').strip().upper()
+    kwh_rate     = float(data.get('kwh_rate', 12.0))
+
+    if not slot_id or not ticket_id:
+        return jsonify({'success': False, 'message': 'slot_id and ticket_id required'})
+
+    # Check no active session for this slot
+    existing = EVChargingSession.query.filter_by(
+        slot_id=slot_id, status='charging'
+    ).first()
+    if existing:
+        return jsonify({'success': False, 'message': 'Charging session already active for this slot'})
+
+    session = EVChargingSession(
+        lot_id       = 1,
+        slot_id      = slot_id,
+        ticket_id    = ticket_id,
+        number_plate = number_plate,
+        kwh_rate     = kwh_rate,
+        status       = 'charging'
+    )
+    db.session.add(session)
+    db.session.commit()
+    return jsonify({'success': True, 'session_id': session.id, 'kwh_rate': kwh_rate})
+
+@app.route('/api/ev/stop', methods=['POST'])
+@api_login_required
+def ev_stop():
+    """Stop charging and calculate fee."""
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import EVChargingSession
+    from datetime import datetime
+    data         = request.json
+    ticket_id    = data.get('ticket_id', '').strip().upper()
+    kwh_delivered = float(data.get('kwh_delivered', 0))
+
+    session = EVChargingSession.query.filter_by(
+        ticket_id=ticket_id, status='charging'
+    ).first()
+    if not session:
+        return jsonify({'success': False, 'message': 'No active charging session found'})
+
+    charging_fee         = round(kwh_delivered * session.kwh_rate, 2)
+    session.kwh_delivered = kwh_delivered
+    session.charging_fee  = charging_fee
+    session.end_time      = datetime.utcnow()
+    session.status        = 'completed'
+    db.session.commit()
+
+    return jsonify({
+        'success':       True,
+        'kwh_delivered': kwh_delivered,
+        'kwh_rate':      session.kwh_rate,
+        'charging_fee':  charging_fee,
+        'duration_min':  round((session.end_time - session.start_time).total_seconds() / 60, 1)
+    })
+
+@app.route('/api/ev/sessions', methods=['GET'])
+@api_login_required
+def ev_sessions():
+    """List active and recent charging sessions."""
+    if not USE_DB:
+        return jsonify({'success': True, 'sessions': []})
+    from models.db import EVChargingSession
+    sessions = EVChargingSession.query.filter_by(lot_id=1).order_by(
+        EVChargingSession.start_time.desc()
+    ).limit(20).all()
+    return jsonify({'success': True, 'sessions': [s.to_dict() for s in sessions]})
+
+@app.route('/api/ev/active', methods=['GET'])
+@api_login_required
+def ev_active():
+    """Get all currently active charging sessions."""
+    if not USE_DB:
+        return jsonify({'success': True, 'sessions': []})
+    from models.db import EVChargingSession
+    sessions = EVChargingSession.query.filter_by(lot_id=1, status='charging').all()
+    return jsonify({'success': True, 'sessions': [s.to_dict() for s in sessions]})
+
 # ─────────────────────────────────────────────
 # API: AI PREDICTION
 # ─────────────────────────────────────────────
@@ -848,7 +943,7 @@ with app.app_context():
 # ENTRY POINT (local dev only)
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
-    port  = int(os.getenv('PORT', 5001))
+    port  = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_ENV', 'production') != 'production'
     print(f'Smart Parking System running at → http://localhost:{port}')
     app.run(debug=debug, host='0.0.0.0', port=port)
