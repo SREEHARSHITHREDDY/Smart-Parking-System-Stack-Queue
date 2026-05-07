@@ -2729,3 +2729,32 @@
   .qr-receipt-section { display: block !important; }
   .qr-receipt-img { border: 2px solid #000 !important; }
 }
+
+/* ── THEME TOGGLE BUTTON ─────────────────── */
+.btn-theme {
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--border-lit);
+  border-radius: var(--r-sm);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: var(--t);
+}
+.btn-theme:hover { border-color: var(--gold); }
+
+/* ── THEME TOGGLE BUTTON ─────────────────── */
+
+.btn-theme {
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--border-lit);
+  border-radius: var(--r-sm);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: var(--t);
+}
+
+.btn-theme:hover {
+  border-color: var(--gold);
+}
+
