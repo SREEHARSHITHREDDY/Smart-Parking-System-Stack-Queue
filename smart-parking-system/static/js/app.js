@@ -1986,3 +1986,93 @@ function showEVReceipt(data, ticketId) {
   document.getElementById('qrReceiptSection').classList.add('hidden');
   document.getElementById('receiptOverlay').classList.remove('hidden');
 }
+
+/* ══════════════════════════════════════════════════════════
+   v3.0 Day 35 — LOT NAME · SESSION TIMEOUT · PASSWORD CHANGE
+══════════════════════════════════════════════════════════ */
+
+// ── LOT NAME IN HEADER ───────────────────────────────────
+function updateLotName(name) {
+  const el = document.getElementById('lotNameDisplay');
+  if (!el || !name || name === 'Smart Parking') return;
+  el.textContent = name;
+  el.classList.remove('hidden');
+}
+
+// ── SESSION TIMEOUT ──────────────────────────────────────
+let sessionTimer    = null;
+let sessionWarning  = null;
+const SESSION_MS    = 30 * 60 * 1000;  // 30 minutes
+const WARNING_MS    = 29 * 60 * 1000;  // warn at 29 minutes
+
+function startSessionTimer() {
+  clearTimeout(sessionTimer);
+  clearTimeout(sessionWarning);
+  sessionWarning = setTimeout(() => {
+    document.getElementById('sessionWarningOverlay').classList.remove('hidden');
+  }, WARNING_MS);
+  sessionTimer = setTimeout(() => {
+    window.location = '/logout';
+  }, SESSION_MS);
+}
+
+function resetSessionTimer() {
+  document.getElementById('sessionWarningOverlay').classList.add('hidden');
+  startSessionTimer();
+}
+
+// Reset timer on any user interaction
+['click','keydown','mousemove','touchstart'].forEach(evt => {
+  document.addEventListener(evt, () => {
+    if (sessionTimer) startSessionTimer();
+  }, { passive: true });
+});
+
+// ── PASSWORD CHANGE MODAL ─────────────────────────────────
+function openChangePassword() {
+  document.getElementById('cpCurrent').value  = '';
+  document.getElementById('cpNew').value      = '';
+  document.getElementById('cpConfirm').value  = '';
+  document.getElementById('cpError').textContent  = '';
+  document.getElementById('cpSuccess').textContent = '';
+  document.getElementById('changePasswordOverlay').classList.remove('hidden');
+}
+
+function closeChangePassword() {
+  document.getElementById('changePasswordOverlay').classList.add('hidden');
+}
+
+async function submitChangePassword() {
+  const errEl = document.getElementById('cpError');
+  const okEl  = document.getElementById('cpSuccess');
+  errEl.textContent = '';
+  okEl.textContent  = '';
+  const body = {
+    current_password: document.getElementById('cpCurrent').value,
+    new_password:     document.getElementById('cpNew').value,
+    confirm_password: document.getElementById('cpConfirm').value,
+  };
+  try {
+    const res  = await fetch('/api/change-password', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    okEl.textContent = 'Password changed successfully!';
+    setTimeout(closeChangePassword, 1500);
+    showToast('Password updated', 'success');
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
+
+// ── PATCH applyStatus TO UPDATE LOT NAME ─────────────────
+const _origApplyStatus = applyStatus;
+applyStatus = function(data) {
+  _origApplyStatus(data);
+  if (data.lot_name) updateLotName(data.lot_name);
+};
+
+// ── START SESSION TIMER ON PAGE LOAD ─────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  startSessionTimer();
+});
