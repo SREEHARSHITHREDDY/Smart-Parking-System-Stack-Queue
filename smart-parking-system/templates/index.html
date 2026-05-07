@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=JetBrains+Mono:wght@300;400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
   <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
   <meta name="theme-color" content="#f0c040">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -253,6 +254,7 @@
       <span class="brand-icon">🅿</span>
       <div>
         <div class="brand-name">SMART PARKING</div>
+        <div class="lot-name-display" id="lotNameDisplay"></div>
         <div class="brand-sub">MANAGEMENT SYSTEM</div>
       </div>
     </div>
@@ -281,6 +283,7 @@
       <button class="btn-ai" onclick="toggleAI()">🧠 AI</button>
       <button class="btn-booking" onclick="toggleBooking()">📅 BOOKINGS</button>
       <button class="btn-admin hidden" id="adminBtn" onclick="toggleAdmin()">👤 ADMIN</button>
+      <button class="btn-logout" onclick="openChangePassword()" style="border-color:var(--border-lit);margin-right:4px;">🔑 PWD</button>
       <button class="btn-logout" onclick="window.location='/logout'">LOGOUT</button>
       <button class="btn-reset" onclick="confirmReset()">⚙ RESET</button>
     </div>
@@ -776,6 +779,54 @@
 
 </div><!-- end #app -->
 
+<!-- CHANGE PASSWORD MODAL -->
+<div id="changePasswordOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <div class="modal-icon">🔑</div>
+      <h2>CHANGE PASSWORD</h2>
+      <p>Enter your current and new password</p>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>CURRENT PASSWORD</label>
+        <input type="password" id="cpCurrent" placeholder="••••••••" />
+      </div>
+      <div class="form-group">
+        <label>NEW PASSWORD (min 6 chars)</label>
+        <input type="password" id="cpNew" placeholder="••••••••" />
+      </div>
+      <div class="form-group">
+        <label>CONFIRM NEW PASSWORD</label>
+        <input type="password" id="cpConfirm" placeholder="••••••••" />
+      </div>
+      <div class="modal-error" id="cpError"></div>
+      <div class="form-msg success" id="cpSuccess"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="submitChangePassword()">CHANGE PASSWORD</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="closeChangePassword()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- SESSION TIMEOUT WARNING -->
+<div id="sessionWarningOverlay" class="overlay hidden" style="background:rgba(3,7,12,0.97);">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <div class="modal-icon">⏱</div>
+      <h2>SESSION EXPIRING</h2>
+      <p>You will be logged out in 60 seconds due to inactivity.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="resetSessionTimer()">STAY LOGGED IN</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="window.location='/logout'">LOGOUT NOW</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div id="toast" class="toast hidden"></div>
 
@@ -783,7 +834,7 @@
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
       .then(reg => console.log('SW registered:', reg.scope))
       .catch(err => console.log('SW failed:', err));
   });
