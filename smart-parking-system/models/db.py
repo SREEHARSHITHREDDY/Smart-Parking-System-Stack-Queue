@@ -297,3 +297,29 @@ class EVChargingSession(db.Model):
             'end_time':      self.end_time.isoformat() if self.end_time else None,
             'status':        self.status,
         }
+
+
+# ─────────────────────────────────────────────
+# SLOT NOTES  (Day 36)
+# ─────────────────────────────────────────────
+
+class SlotNote(db.Model):
+    __tablename__ = 'slot_notes'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    lot_id     = db.Column(db.Integer, db.ForeignKey('parking_lots.id'), nullable=False)
+    slot_id    = db.Column(db.String(32), nullable=False)
+    note_type  = db.Column(db.String(20), nullable=True)   # vip/disabled/reserved/ev/blocked
+    note_text  = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('lot_id', 'slot_id', name='uq_slot_note'),
+    )
+
+    def to_dict(self):
+        return {
+            'slot_id':   self.slot_id,
+            'note_type': self.note_type,
+            'note_text': self.note_text,
+        }
