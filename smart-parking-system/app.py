@@ -479,6 +479,49 @@ def reset():
 
 
 
+
+# ─────────────────────────────────────────────
+# API: SLOT NOTES
+# ─────────────────────────────────────────────
+
+@app.route('/api/slots/<slot_id>/note', methods=['POST'])
+@api_login_required
+def set_slot_note(slot_id):
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import SlotNote
+    from core.security import sanitize_string
+    data      = request.json
+    note_type = data.get('note_type', '').strip()
+    note_text = sanitize_string(data.get('note_text', ''), 200)
+
+    note = SlotNote.query.filter_by(lot_id=1, slot_id=slot_id).first()
+
+    if not note_type:
+        # Clear note
+        if note:
+            db.session.delete(note)
+            db.session.commit()
+        return jsonify({'success': True, 'cleared': True})
+
+    if not note:
+        note = SlotNote(lot_id=1, slot_id=slot_id)
+        db.session.add(note)
+
+    note.note_type = note_type
+    note.note_text = note_text
+    db.session.commit()
+    return jsonify({'success': True, 'note': note.to_dict()})
+
+@app.route('/api/slots/notes', methods=['GET'])
+@api_login_required
+def get_slot_notes():
+    if not USE_DB:
+        return jsonify({'success': True, 'notes': {}})
+    from models.db import SlotNote
+    notes = SlotNote.query.filter_by(lot_id=1).all()
+    return jsonify({'success': True, 'notes': {n.slot_id: n.to_dict() for n in notes}})
+
 # ─────────────────────────────────────────────
 # API: CHANGE PASSWORD
 # ─────────────────────────────────────────────
