@@ -158,10 +158,16 @@ def manifest():
 
 @app.route('/sw.js')
 def service_worker():
-    from flask import send_from_directory, Response
-    with open(os.path.join(app.root_path, 'sw.js')) as f:
-        content_sw = f.read()
-    return Response(content_sw, mimetype='application/javascript')
+    from flask import Response
+    try:
+        with open(os.path.join(app.root_path, 'sw.js')) as f:
+            content_sw = f.read()
+        resp = Response(content_sw, mimetype='application/javascript')
+        resp.headers['Service-Worker-Allowed'] = '/'
+        resp.headers['Cache-Control'] = 'no-cache'
+        return resp
+    except FileNotFoundError:
+        return Response('', mimetype='application/javascript')
 
 # ─────────────────────────────────────────────
 # API: STATUS
@@ -185,8 +191,15 @@ def status():
             'position': info.get('position'),
         }
 
+    lot_name = 'Smart Parking'
+    if USE_DB:
+        from models.db import ParkingLotModel
+        lot = ParkingLotModel.query.get(1)
+        if lot: lot_name = lot.name
+
     return jsonify({
         'setup':        True,
+        'lot_name':     lot_name,
         'hasBlueprint': blueprint_exists(),
         'row_config':   parking_lot.row_config,
         'floor_config': parking_lot.floor_config,
@@ -464,6 +477,32 @@ def reset():
 
     return jsonify({'success': True, 'message': 'System reset successfully'})
 
+
+
+# ─────────────────────────────────────────────
+# API: CHANGE PASSWORD
+# ─────────────────────────────────────────────
+
+@app.route('/api/change-password', methods=['POST'])
+@api_login_required
+def change_password():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    data         = request.json
+    current_pw   = data.get('current_password', '')
+    new_pw       = data.get('new_password', '')
+    confirm_pw   = data.get('confirm_password', '')
+    if not current_pw or not new_pw or not confirm_pw:
+        return jsonify({'success': False, 'message': 'All fields required'})
+    if not current_user.check_password(current_pw):
+        return jsonify({'success': False, 'message': 'Current password is incorrect'})
+    if len(new_pw) < 6:
+        return jsonify({'success': False, 'message': 'New password must be at least 6 characters'})
+    if new_pw != confirm_pw:
+        return jsonify({'success': False, 'message': 'Passwords do not match'})
+    current_user.set_password(new_pw)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Password changed successfully'})
 
 # ─────────────────────────────────────────────
 # API: USER INFO (for frontend)
@@ -969,7 +1008,7 @@ with app.app_context():
 # ENTRY POINT (local dev only)
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
-    port  = int(os.getenv('PORT', 5001))
+    port  = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_ENV', 'production') != 'production'
     print(f'Smart Parking System running at → http://localhost:{port}')
     app.run(debug=debug, host='0.0.0.0', port=port)
