@@ -2076,3 +2076,142 @@ applyStatus = function(data) {
 document.addEventListener('DOMContentLoaded', () => {
   startSessionTimer();
 });
+
+/* ══════════════════════════════════════════════════════════
+   v3.0 Day 36 — SLOT NOTES + DARK/LIGHT MODE
+══════════════════════════════════════════════════════════ */
+
+// ── SLOT NOTES ────────────────────────────────────────────
+
+let slotNotes    = {};  // {slot_id: {note_type, note_text}}
+let noteSlotId   = null;
+
+const NOTE_ICONS = {
+  vip:      '⭐',
+  disabled: '♿',
+  reserved: '🔒',
+  ev:       '⚡',
+  blocked:  '🚫',
+};
+
+async function loadSlotNotes() {
+  try {
+    const res  = await fetch('/api/slots/notes');
+    const data = await res.json();
+    if (data.success) {
+      slotNotes = data.notes;
+      renderBlueprint(latestConfig, latestLayout, latestFloorCfg);
+    }
+  } catch (e) {}
+}
+
+function openSlotNote(slotId) {
+  if (!slotId) return;
+  noteSlotId = slotId;
+  const existing = slotNotes[slotId];
+  document.getElementById('noteType').value = existing ? existing.note_type : '';
+  document.getElementById('noteText').value = existing ? (existing.note_text || '') : '';
+  document.getElementById('noteError').textContent = '';
+  document.getElementById('noteSlotId').textContent = 'Slot: ' + slotId;
+  document.getElementById('slotNoteOverlay').classList.remove('hidden');
+  // Close slot popup first
+  document.getElementById('slotPopupOverlay').classList.add('hidden');
+}
+
+function closeSlotNote() {
+  document.getElementById('slotNoteOverlay').classList.add('hidden');
+  noteSlotId = null;
+}
+
+async function saveSlotNote() {
+  if (!noteSlotId) return;
+  const errEl = document.getElementById('noteError');
+  errEl.textContent = '';
+  const body = {
+    note_type: document.getElementById('noteType').value,
+    note_text: document.getElementById('noteText').value.trim(),
+  };
+  try {
+    const res  = await fetch(`/api/slots/${noteSlotId}/note`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    if (body.note_type) {
+      slotNotes[noteSlotId] = { note_type: body.note_type, note_text: body.note_text };
+      showToast(`Note set: ${NOTE_ICONS[body.note_type]} ${body.note_type.toUpperCase()} on ${noteSlotId}`, 'success');
+    } else {
+      delete slotNotes[noteSlotId];
+      showToast(`Note cleared on ${noteSlotId}`, 'info');
+    }
+    closeSlotNote();
+    renderBlueprint(latestConfig, latestLayout, latestFloorCfg);
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
+
+// Override buildSlotCell to show note icons
+const _origBuildSlotCell = buildSlotCell;
+buildSlotCell = function(slotId, occupied, slotData) {
+  const cell = _origBuildSlotCell(slotId, occupied, slotData);
+  const note = slotNotes[slotId];
+  if (note && note.note_type) {
+    const noteEl = document.createElement('div');
+    noteEl.style.cssText = 'position:absolute;top:2px;right:3px;font-size:0.55rem;line-height:1;';
+    noteEl.textContent = NOTE_ICONS[note.note_type] || '📌';
+    noteEl.title = note.note_text || note.note_type;
+    cell.style.position = 'relative';
+    cell.appendChild(noteEl);
+  }
+  return cell;
+};
+
+// Load notes on startup
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(loadSlotNotes, 1000);
+});
+
+// ── DARK / LIGHT MODE ─────────────────────────────────────
+
+let isDarkMode = true;
+
+function toggleTheme() {
+  isDarkMode = !isDarkMode;
+  applyTheme();
+  localStorage.setItem('smartpark_theme', isDarkMode ? 'dark' : 'light');
+}
+
+function applyTheme() {
+  const btn = document.getElementById('themeToggle');
+  if (isDarkMode) {
+    document.documentElement.style.setProperty('--bg-base',    '#080e14');
+    document.documentElement.style.setProperty('--bg-deep',    '#050a10');
+    document.documentElement.style.setProperty('--bg-surface', '#0d1a26');
+    document.documentElement.style.setProperty('--bg-card',    '#101f2e');
+    document.documentElement.style.setProperty('--bg-input',   '#070d14');
+    document.documentElement.style.setProperty('--text-hi',    '#e8f4ff');
+    document.documentElement.style.setProperty('--text-mid',   '#7aa0be');
+    document.documentElement.style.setProperty('--text-lo',    '#3a5570');
+    document.documentElement.style.setProperty('--border',     '#0f2035');
+    document.documentElement.style.setProperty('--border-lit', '#1a3a55');
+    if (btn) btn.textContent = '🌙';
+  } else {
+    document.documentElement.style.setProperty('--bg-base',    '#f0f4f8');
+    document.documentElement.style.setProperty('--bg-deep',    '#e2e8f0');
+    document.documentElement.style.setProperty('--bg-surface', '#ffffff');
+    document.documentElement.style.setProperty('--bg-card',    '#ffffff');
+    document.documentElement.style.setProperty('--bg-input',   '#f8fafc');
+    document.documentElement.style.setProperty('--text-hi',    '#1a2332');
+    document.documentElement.style.setProperty('--text-mid',   '#4a6080');
+    document.documentElement.style.setProperty('--text-lo',    '#8aa0be');
+    document.documentElement.style.setProperty('--border',     '#d0dce8');
+    document.documentElement.style.setProperty('--border-lit', '#b0c8e0');
+    if (btn) btn.textContent = '☀️';
+  }
+}
+
+// Load saved theme on startup
+document.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('smartpark_theme');
+  if (saved === 'light') { isDarkMode = false; applyTheme(); }
+});
