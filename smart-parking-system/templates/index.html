@@ -281,6 +281,10 @@
       </div>
       <div id="surgeBadge" class="surge-badge hidden">⚡ SURGE ACTIVE</div>
       <button class="btn-pricing" onclick="togglePricing()">⚡ PRICING</button>
+      <button class="btn-rates" onclick="toggleCustomRates()">💰 RATES</button>
+      <button class="btn-fastag" onclick="toggleFastag()">📡 FASTAG</button>
+      <button class="btn-shifts" onclick="toggleShifts()">🕐 SHIFT</button>
+      <button class="btn-history" onclick="toggleVehicleHistory()">🔍 HISTORY</button>
       <button class="btn-ev" onclick="toggleEV()">⚡ EV</button>
       <button class="btn-ai" onclick="toggleAI()">🧠 AI</button>
       <button class="btn-booking" onclick="toggleBooking()">📅 BOOKINGS</button>
@@ -554,7 +558,137 @@
   </div>
 </div>
 
-  <!-- ══════════ EV CHARGING PANEL ══════════ -->
+  <!-- ══════════ VEHICLE HISTORY PANEL ══════════ -->
+<div id="vehicleHistoryPanel" class="history-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">🔍 VEHICLE HISTORY SEARCH</div>
+  </div>
+  <div style="padding:16px 20px;">
+    <div class="form-group" style="display:flex;gap:10px;align-items:flex-end;">
+      <div style="flex:1;">
+        <label>SEARCH BY PLATE NUMBER</label>
+        <input type="text" id="historySearchPlate" placeholder="TS09AB1234"
+               oninput="this.value=this.value.toUpperCase()" maxlength="11" />
+      </div>
+      <button class="btn-primary" style="padding:10px 20px;white-space:nowrap;"
+              onclick="searchVehicleHistory()">SEARCH</button>
+    </div>
+    <div id="vehicleHistorySummary" style="display:none;margin-top:12px;"></div>
+    <div id="vehicleHistoryList" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<!-- ══════════ SHIFT TRACKING PANEL ══════════ -->
+<div id="shiftsPanel" class="shifts-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">🕐 OPERATOR SHIFTS</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn-add-rule" id="shiftStartBtn" onclick="startShift()">▶ START SHIFT</button>
+      <button class="btn-secondary" id="shiftEndBtn" onclick="endShift()" style="display:none;">⏹ END SHIFT</button>
+    </div>
+  </div>
+  <div id="activeShiftCard" style="padding:12px 20px;display:none;"></div>
+  <div id="shiftsList" class="pricing-rules-list">
+    <div class="empty-state">No shifts recorded yet.</div>
+  </div>
+</div>
+
+<!-- ══════════ FASTTAG PANEL ══════════ -->
+<div id="fastagPanel" class="ai-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">📡 FASTTAG REGISTRY</div>
+    <button class="btn-add-rule" onclick="openFastagRegister()">+ REGISTER TAG</button>
+  </div>
+  <div style="padding:12px 20px;">
+    <div class="form-group" style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;">
+      <div style="flex:1;">
+        <label>SCAN / ENTER FASTTAG ID AT ENTRY</label>
+        <input type="text" id="fastagLookupId" placeholder="FASTag ID"
+               oninput="this.value=this.value.toUpperCase()" />
+      </div>
+      <button class="btn-primary" style="padding:10px 20px;" onclick="fastagLookup()">LOOKUP</button>
+    </div>
+    <div id="fastagLookupResult"></div>
+  </div>
+  <div id="fastagList" class="pricing-rules-list">
+    <div class="empty-state">No FASTag registrations yet.</div>
+  </div>
+</div>
+
+<!-- ══════════ REGISTER FASTTAG MODAL ══════════ -->
+<div id="fastagRegisterOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-icon">📡</div>
+      <h2>REGISTER FASTTAG</h2>
+      <p>Link a FASTag ID to a vehicle plate</p>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>FASTTAG ID</label>
+        <input type="text" id="ftId" placeholder="e.g. FT1234567890"
+               oninput="this.value=this.value.toUpperCase()" />
+      </div>
+      <div class="form-group">
+        <label>VEHICLE NUMBER</label>
+        <input type="text" id="ftPlate" placeholder="TS09AB1234"
+               oninput="this.value=this.value.toUpperCase()" maxlength="11" />
+      </div>
+      <div class="form-group">
+        <label>VEHICLE TYPE</label>
+        <select id="ftType" class="floor-select">
+          <option value="car">Car</option>
+          <option value="bike">Bike</option>
+          <option value="truck">Truck</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>OWNER NAME (optional)</label>
+        <input type="text" id="ftName" placeholder="e.g. Ravi Kumar" />
+      </div>
+      <div class="form-group">
+        <label>OWNER PHONE (optional)</label>
+        <input type="tel" id="ftPhone" placeholder="+91 9876543210" />
+      </div>
+      <div class="modal-error" id="ftError"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="saveFastag()">REGISTER</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="closeFastagRegister()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ CUSTOM RATES PANEL ══════════ -->
+<div id="customRatesPanel" class="ai-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">💰 CUSTOM RATES PER VEHICLE TYPE</div>
+    <button class="btn-add-rule" onclick="saveCustomRates()">💾 SAVE RATES</button>
+  </div>
+  <div style="padding:16px 20px;">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;" id="customRatesGrid">
+      <div class="admin-stat-card" style="border:1px solid var(--border);border-radius:var(--r-md);">
+        <div class="admin-stat-lbl">CAR (Rs/hr)</div>
+        <input type="number" id="ratecar" min="1" max="9999" step="1"
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px;color:var(--gold);font-family:var(--font-display);font-size:1.2rem;text-align:center;margin-top:8px;" />
+      </div>
+      <div class="admin-stat-card" style="border:1px solid var(--border);border-radius:var(--r-md);">
+        <div class="admin-stat-lbl">BIKE (Rs/hr)</div>
+        <input type="number" id="ratebike" min="1" max="9999" step="1"
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px;color:var(--cyan);font-family:var(--font-display);font-size:1.2rem;text-align:center;margin-top:8px;" />
+      </div>
+      <div class="admin-stat-card" style="border:1px solid var(--border);border-radius:var(--r-md);">
+        <div class="admin-stat-lbl">TRUCK (Rs/hr)</div>
+        <input type="number" id="ratetruck" min="1" max="9999" step="1"
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px;color:var(--purple);font-family:var(--font-display);font-size:1.2rem;text-align:center;margin-top:8px;" />
+      </div>
+    </div>
+    <div class="modal-error" id="ratesError" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<!-- ══════════ EV CHARGING PANEL ══════════ -->
 <div id="evPanel" class="ev-panel hidden">
   <div class="pricing-header">
     <div class="pricing-title">⚡ EV CHARGING SESSIONS</div>
