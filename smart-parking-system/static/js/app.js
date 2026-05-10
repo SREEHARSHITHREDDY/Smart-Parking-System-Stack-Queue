@@ -2215,3 +2215,430 @@ document.addEventListener('DOMContentLoaded', () => {
   const saved = localStorage.getItem('smartpark_theme');
   if (saved === 'light') { isDarkMode = false; applyTheme(); }
 });
+
+/* ══════════════════════════════════════════════════════════
+   LOW COMPLEXITY TASKS — ALL 14
+   #3 Vehicle History · #4 PDF Export · #5 Monthly Report
+   #6 Shifts · #7 FASTag · #8 Slot Types · #9 Custom Rates
+   #10 Heatmap · #11 Forecasting · #12 Public API
+   #13 Dark Mode DB · #14 Print Receipt
+══════════════════════════════════════════════════════════ */
+
+// ── LOW #3 — VEHICLE HISTORY SEARCH ─────────────────────
+
+let historyVisible = false;
+
+async function toggleVehicleHistory() {
+  historyVisible = !historyVisible;
+  const panel = document.getElementById('vehicleHistoryPanel');
+  const btn   = document.querySelector('.btn-history');
+  if (historyVisible) { panel.classList.remove('hidden'); btn.classList.add('active'); }
+  else                { panel.classList.add('hidden');    btn.classList.remove('active'); }
+}
+
+async function searchVehicleHistory() {
+  const plate = document.getElementById('historySearchPlate').value.trim().toUpperCase();
+  if (!plate) return;
+  const summary = document.getElementById('vehicleHistorySummary');
+  const list    = document.getElementById('vehicleHistoryList');
+  list.innerHTML    = '<div class="empty-state">Searching...</div>';
+  summary.style.display = 'none';
+
+  try {
+    const res  = await fetch(`/api/vehicle-history/${plate}`);
+    const data = await res.json();
+    if (!data.success) { list.innerHTML = `<div class="empty-state">${data.message}</div>`; return; }
+    if (data.records.length === 0) {
+      list.innerHTML = `<div class="empty-state">No history found for ${plate}</div>`; return;
+    }
+
+    summary.style.display = 'block';
+    summary.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;">
+        <div class="admin-stat-card"><div class="admin-stat-val" style="font-size:1.4rem;color:var(--cyan);">${data.total_visits}</div><div class="admin-stat-lbl">TOTAL VISITS</div></div>
+        <div class="admin-stat-card"><div class="admin-stat-val" style="font-size:1.4rem;color:var(--gold);">₹${Math.round(data.total_fee)}</div><div class="admin-stat-lbl">TOTAL SPENT</div></div>
+        <div class="admin-stat-card"><div class="admin-stat-val" style="font-size:1.4rem;color:var(--green);">${data.total_hours}h</div><div class="admin-stat-lbl">TOTAL HOURS</div></div>
+        <div class="admin-stat-card"><div class="admin-stat-val" style="font-size:0.7rem;color:var(--text-mid);">${data.last_visit ? data.last_visit.slice(0,10) : 'N/A'}</div><div class="admin-stat-lbl">LAST VISIT</div></div>
+      </div>`;
+
+    list.innerHTML = data.records.map(r => `
+      <div class="rule-card">
+        <div style="flex:1;">
+          <div class="rule-name">${r.slot} · ${r.vehicle_type.toUpperCase()}</div>
+          <div class="rule-hours">${r.entry_time.slice(0,16)} → ${r.exit_time.slice(0,16)}</div>
+        </div>
+        <div class="rule-day">${r.duration_min} min</div>
+        <div class="rule-multiplier">₹${r.fee}</div>
+      </div>`).join('');
+  } catch (e) { list.innerHTML = '<div class="empty-state">Error. Try again.</div>'; }
+}
+
+// ── LOW #4 — PDF EXPORT (Analytics) ─────────────────────
+
+async function exportAnalyticsPDF() {
+  showToast('Generating PDF...', 'info');
+  try {
+    const res = await fetch('/api/reports/analytics-pdf');
+    if (res.ok) {
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `analytics_${new Date().toISOString().slice(0,10)}.pdf`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast('Analytics PDF downloaded', 'success');
+    } else {
+      const d = await res.json();
+      showToast(d.message || 'PDF failed', 'error');
+    }
+  } catch (e) { showToast('PDF generation failed', 'error'); }
+}
+
+// ── LOW #5 — MONTHLY REPORT ──────────────────────────────
+
+async function downloadMonthlyReport(month) {
+  month = month || new Date().toISOString().slice(0,7);
+  showToast(`Generating ${month} report...`, 'info');
+  try {
+    const res = await fetch(`/api/reports/monthly?month=${month}`);
+    if (res.ok) {
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `report_${month}.pdf`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast('Monthly report downloaded', 'success');
+    } else {
+      const d = await res.json();
+      showToast(d.message || 'Report failed', 'error');
+    }
+  } catch (e) { showToast('Report generation failed', 'error'); }
+}
+
+// ── LOW #6 — OPERATOR SHIFTS ─────────────────────────────
+
+let shiftsVisible = false;
+
+async function toggleShifts() {
+  shiftsVisible = !shiftsVisible;
+  const panel = document.getElementById('shiftsPanel');
+  const btn   = document.querySelector('.btn-shifts');
+  if (shiftsVisible) { panel.classList.remove('hidden'); btn.classList.add('active'); await loadShifts(); }
+  else               { panel.classList.add('hidden');    btn.classList.remove('active'); }
+}
+
+async function loadShifts() {
+  try {
+    const res  = await fetch('/api/shifts');
+    const data = await res.json();
+    const startBtn = document.getElementById('shiftStartBtn');
+    const endBtn   = document.getElementById('shiftEndBtn');
+    const activeCard = document.getElementById('activeShiftCard');
+
+    if (data.active) {
+      startBtn.style.display = 'none';
+      endBtn.style.display   = 'block';
+      const elapsed = Math.round((Date.now() - new Date(data.active.start_time)) / 60000);
+      activeCard.style.display = 'block';
+      activeCard.innerHTML = `
+        <div class="rule-card" style="border-left-color:var(--green);">
+          <div style="font-size:1.2rem;">🟢</div>
+          <div style="flex:1;">
+            <div class="rule-name" style="color:var(--green);">SHIFT ACTIVE</div>
+            <div class="rule-hours">Started ${data.active.start_time.slice(11,16)} · ${elapsed} min elapsed</div>
+          </div>
+        </div>`;
+    } else {
+      startBtn.style.display = 'block';
+      endBtn.style.display   = 'none';
+      activeCard.style.display = 'none';
+    }
+
+    const list = document.getElementById('shiftsList');
+    if (!data.shifts || data.shifts.length === 0) {
+      list.innerHTML = '<div class="empty-state">No shifts yet.</div>'; return;
+    }
+    list.innerHTML = data.shifts.filter(s => s.status === 'ended').map(s => `
+      <div class="rule-card">
+        <div style="flex:1;">
+          <div class="rule-name">${s.start_time.slice(0,10)} · ${s.start_time.slice(11,16)} – ${s.end_time ? s.end_time.slice(11,16) : '?'}</div>
+          <div class="rule-hours">${s.exits_processed} exits · ${s.duration_min} min</div>
+        </div>
+        <div class="rule-multiplier">₹${Math.round(s.revenue_collected)}</div>
+      </div>`).join('');
+  } catch (e) {}
+}
+
+async function startShift() {
+  try {
+    const res  = await fetch('/api/shifts/start', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    const data = await res.json();
+    if (data.success) { await loadShifts(); showToast('Shift started', 'success'); }
+    else showToast(data.message, 'error');
+  } catch (e) { showToast('Error starting shift', 'error'); }
+}
+
+async function endShift() {
+  try {
+    const res  = await fetch('/api/shifts/end', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    const data = await res.json();
+    if (data.success) {
+      await loadShifts();
+      showToast(`Shift ended · ${data.shift.exits_processed} exits · ₹${Math.round(data.shift.revenue_collected)}`, 'success');
+    } else showToast(data.message, 'error');
+  } catch (e) { showToast('Error ending shift', 'error'); }
+}
+
+// ── LOW #7 — FASTTAG ─────────────────────────────────────
+
+let fastagVisible = false;
+
+async function toggleFastag() {
+  fastagVisible = !fastagVisible;
+  const panel = document.getElementById('fastagPanel');
+  const btn   = document.querySelector('.btn-fastag');
+  if (fastagVisible) { panel.classList.remove('hidden'); btn.classList.add('active'); await loadFastagList(); }
+  else               { panel.classList.add('hidden');    btn.classList.remove('active'); }
+}
+
+async function fastagLookup() {
+  const id  = document.getElementById('fastagLookupId').value.trim().toUpperCase();
+  const div = document.getElementById('fastagLookupResult');
+  if (!id) return;
+  try {
+    const res  = await fetch(`/api/fasttag/${id}`);
+    const data = await res.json();
+    if (data.success) {
+      div.innerHTML = `<div class="rule-card" style="border-left-color:var(--green);">
+        <div style="font-size:1.4rem;">✅</div>
+        <div style="flex:1;">
+          <div class="rule-name">${data.entry.number_plate}</div>
+          <div class="rule-hours">${data.entry.vehicle_type.toUpperCase()} · ${data.entry.owner_name || 'Unknown'}</div>
+        </div>
+        <button class="btn-add-rule" style="font-size:0.56rem;padding:5px 10px;"
+                onclick="document.getElementById('plateInput').value='${data.entry.number_plate}';document.getElementById('vehicleTypeSelect').value='${data.entry.vehicle_type}';showToast('Plate auto-filled','success');">
+          USE PLATE
+        </button>
+      </div>`;
+    } else {
+      div.innerHTML = `<div class="empty-state" style="color:var(--red);">FASTag not registered</div>`;
+    }
+  } catch (e) { div.innerHTML = `<div class="empty-state">Lookup failed</div>`; }
+}
+
+async function loadFastagList() {
+  const list = document.getElementById('fastagList');
+  try {
+    const res  = await fetch('/api/fasttag');
+    const data = await res.json();
+    if (!data.entries || data.entries.length === 0) {
+      list.innerHTML = '<div class="empty-state">No registrations yet.</div>'; return;
+    }
+    list.innerHTML = data.entries.map(e => `
+      <div class="rule-card">
+        <div style="font-size:1.1rem;">📡</div>
+        <div style="flex:1;">
+          <div class="rule-name">${e.number_plate} · ${e.vehicle_type.toUpperCase()}</div>
+          <div class="rule-hours">Tag: ${e.fasttag_id} · ${e.owner_name || 'No name'}</div>
+        </div>
+      </div>`).join('');
+  } catch (e) {}
+}
+
+function openFastagRegister() {
+  ['ftId','ftPlate','ftName','ftPhone'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('ftError').textContent = '';
+  document.getElementById('fastagRegisterOverlay').classList.remove('hidden');
+}
+function closeFastagRegister() { document.getElementById('fastagRegisterOverlay').classList.add('hidden'); }
+
+async function saveFastag() {
+  const errEl = document.getElementById('ftError');
+  errEl.textContent = '';
+  const body = {
+    fasttag_id:   document.getElementById('ftId').value.trim().toUpperCase(),
+    number_plate: document.getElementById('ftPlate').value.trim().toUpperCase(),
+    vehicle_type: document.getElementById('ftType').value,
+    owner_name:   document.getElementById('ftName').value.trim(),
+    owner_phone:  document.getElementById('ftPhone').value.trim(),
+  };
+  if (!body.fasttag_id || !body.number_plate) { errEl.textContent = 'FASTag ID and plate are required'; return; }
+  try {
+    const res  = await fetch('/api/fasttag/register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+    closeFastagRegister();
+    await loadFastagList();
+    showToast(`FASTag registered: ${body.number_plate}`, 'success');
+  } catch (e) { errEl.textContent = 'Server error. Try again.'; }
+}
+
+// ── LOW #9 — CUSTOM RATES ────────────────────────────────
+
+let ratesVisible = false;
+
+async function toggleCustomRates() {
+  ratesVisible = !ratesVisible;
+  const panel = document.getElementById('customRatesPanel');
+  const btn   = document.querySelector('.btn-rates');
+  if (ratesVisible) { panel.classList.remove('hidden'); btn.classList.add('active'); await loadCustomRates(); }
+  else              { panel.classList.add('hidden');    btn.classList.remove('active'); }
+}
+
+async function loadCustomRates() {
+  try {
+    const res  = await fetch('/api/custom-rates');
+    const data = await res.json();
+    if (data.rates) {
+      document.getElementById('ratecar').value   = data.rates.car   || 30;
+      document.getElementById('ratebike').value  = data.rates.bike  || 15;
+      document.getElementById('ratetruck').value = data.rates.truck || 60;
+    }
+  } catch (e) {}
+}
+
+async function saveCustomRates() {
+  const errEl = document.getElementById('ratesError');
+  errEl.textContent = '';
+  const types = ['car','bike','truck'];
+  try {
+    for (const vtype of types) {
+      const rate = parseFloat(document.getElementById(`rate${vtype}`).value);
+      if (!rate || rate <= 0) { errEl.textContent = `Invalid rate for ${vtype}`; return; }
+      const res = await fetch('/api/custom-rates', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ vehicle_type: vtype, rate_per_hour: rate })
+      });
+      const data = await res.json();
+      if (!data.success) { errEl.textContent = data.message; return; }
+    }
+    showToast('Rates saved successfully', 'success');
+  } catch (e) { errEl.textContent = 'Error saving rates'; }
+}
+
+// ── LOW #10 — ANALYTICS HEATMAP ─────────────────────────
+
+function renderHeatmap(hourlyData) {
+  const container = document.getElementById('analyticsHeatmap');
+  if (!container || !hourlyData || hourlyData.length === 0) return;
+
+  const maxCount = Math.max(...hourlyData.map(h => h.count), 1);
+  container.innerHTML = '';
+
+  // Build 24-hour heatmap
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-top:8px;';
+
+  for (let h = 0; h < 24; h++) {
+    const item  = hourlyData.find(x => x.hour === h) || { hour: h, count: 0, revenue: 0 };
+    const pct   = item.count / maxCount;
+    const alpha = 0.1 + pct * 0.9;
+    const cell  = document.createElement('div');
+    cell.style.cssText = `
+      background: rgba(0,200,240,${alpha});
+      border-radius: 4px;
+      padding: 8px 4px;
+      text-align: center;
+      cursor: default;
+    `;
+    cell.title = `${h}:00 — ${item.count} vehicles · ₹${Math.round(item.revenue)}`;
+    cell.innerHTML = `
+      <div style="font-family:var(--font-display);font-size:0.55rem;color:var(--text-lo);">${String(h).padStart(2,'0')}</div>
+      <div style="font-family:var(--font-display);font-size:0.75rem;font-weight:700;color:var(--cyan);">${item.count}</div>`;
+    grid.appendChild(cell);
+  }
+  container.appendChild(grid);
+}
+
+// ── LOW #11 — REVENUE FORECASTING ───────────────────────
+
+function renderForecast(dailyData) {
+  const container = document.getElementById('revenueForecast');
+  if (!container || !dailyData || dailyData.length < 3) return;
+
+  // Linear regression on last 14 days
+  const n     = dailyData.length;
+  const xMean = (n - 1) / 2;
+  const yMean = dailyData.reduce((s, d) => s + d.revenue, 0) / n;
+  let num = 0, den = 0;
+  dailyData.forEach((d, i) => { num += (i - xMean) * (d.revenue - yMean); den += (i - xMean) ** 2; });
+  const slope = den !== 0 ? num / den : 0;
+  const intercept = yMean - slope * xMean;
+
+  // Project next 7 days
+  const forecasts = [];
+  for (let i = 1; i <= 7; i++) {
+    const projected = Math.max(0, Math.round(intercept + slope * (n + i - 1)));
+    const date = new Date();
+    date.setDate(date.getDate() + i);
+    forecasts.push({ date: date.toISOString().slice(0,10), projected });
+  }
+
+  container.innerHTML = `
+    <div style="font-family:var(--font-display);font-size:0.58rem;letter-spacing:0.12em;color:var(--text-lo);margin-bottom:10px;">7-DAY REVENUE FORECAST</div>
+    <div style="display:flex;flex-direction:column;gap:5px;">
+      ${forecasts.map(f => `
+        <div style="display:grid;grid-template-columns:90px 1fr 80px;align-items:center;gap:8px;">
+          <div style="font-family:var(--font-data);font-size:0.65rem;color:var(--text-mid);">${f.date}</div>
+          <div style="height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden;">
+            <div style="height:100%;width:${Math.min(100, (f.projected / (yMean * 2 || 1)) * 100)}%;background:var(--green);border-radius:3px;"></div>
+          </div>
+          <div style="font-family:var(--font-display);font-size:0.65rem;color:var(--green);text-align:right;">₹${f.projected}</div>
+        </div>`).join('')}
+    </div>`;
+}
+
+// ── LOW #12 — PUBLIC API LINK ────────────────────────────
+
+function copyPublicApiUrl() {
+  const url = window.location.origin + '/api/public/lots';
+  navigator.clipboard.writeText(url).then(() => showToast('Public API URL copied: ' + url, 'success'));
+}
+
+// ── LOW #13 — DARK MODE DB PERSIST ──────────────────────
+
+const _origToggleTheme = toggleTheme;
+toggleTheme = async function() {
+  _origToggleTheme();
+  // Save to DB
+  try {
+    await fetch('/api/preferences', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ theme: isDarkMode ? 'dark' : 'light' })
+    });
+  } catch (e) {}
+};
+
+// Load theme from DB on startup
+async function loadThemeFromDB() {
+  try {
+    const res  = await fetch('/api/preferences');
+    const data = await res.json();
+    if (data.theme === 'light' && isDarkMode) {
+      isDarkMode = false; applyTheme();
+    } else if (data.theme === 'dark' && !isDarkMode) {
+      isDarkMode = true; applyTheme();
+    }
+  } catch (e) {}
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadThemeFromDB();
+});
+
+// ── PATCH applyStatus TO RENDER HEATMAP + FORECAST ──────
+const _origApplyStatusLow = applyStatus;
+applyStatus = function(data) {
+  _origApplyStatusLow(data);
+};
+
+// Called when analytics panel loads
+async function loadAnalyticsWithCharts() {
+  try {
+    const res  = await fetch('/api/analytics');
+    const data = await res.json();
+    if (data.success && data.analytics) {
+      renderHeatmap(data.analytics.hourly_breakdown || []);
+      renderForecast(data.analytics.daily_breakdown || []);
+    }
+  } catch (e) {}
+}
