@@ -1041,6 +1041,315 @@ def admin_summary():
         'total_operators': operators,
     })
 
+
+# ─────────────────────────────────────────────
+# LOW #3 — VEHICLE HISTORY SEARCH
+# ─────────────────────────────────────────────
+
+@app.route('/api/vehicle-history/<plate>')
+@api_login_required
+def vehicle_history(plate):
+    plate = sanitize_plate(plate)
+    if not plate:
+        return jsonify({'success': False, 'message': 'Invalid plate'})
+
+    records = []
+    if USE_DB:
+        from models.db import HistoryModel
+        rows = HistoryModel.query.filter_by(
+            number_plate=plate, lot_id=1
+        ).order_by(HistoryModel.exit_time.desc()).limit(100).all()
+        records = [r.to_dict() for r in rows]
+    elif parking_lot:
+        records = [h for h in reversed(parking_lot.history)
+                   if h['number_plate'] == plate]
+
+    total_fee  = sum(r['fee'] for r in records)
+    total_min  = sum(r['duration_min'] for r in records)
+    return jsonify({
+        'success':    True,
+        'plate':      plate,
+        'records':    records,
+        'total_visits': len(records),
+        'total_fee':  round(total_fee, 2),
+        'total_hours': round(total_min / 60, 1),
+        'last_visit': records[0]['exit_time'] if records else None,
+    })
+
+
+# ─────────────────────────────────────────────
+# LOW #4 + #5 — PDF EXPORT (Analytics + Monthly)
+# ─────────────────────────────────────────────
+
+@app.route('/api/reports/analytics-pdf')
+@api_login_required
+def analytics_pdf():
+    if not parking_lot:
+        return jsonify({'success': False, 'message': 'No parking lot configured'})
+    from core.reports import generate_analytics_pdf
+    lot_name = 'Smart Parking'
+    if USE_DB:
+        from models.db import ParkingLotModel
+        lot = ParkingLotModel.query.get(1)
+        if lot: lot_name = lot.name
+    analytics = parking_lot.get_analytics()
+    pdf_bytes  = generate_analytics_pdf(analytics, lot_name)
+    if not pdf_bytes:
+        return jsonify({'success': False, 'message': 'reportlab not installed. Run: pip install reportlab'})
+    from flask import Response
+    return Response(pdf_bytes, mimetype='application/pdf',
+                    headers={'Content-Disposition': f'attachment; filename=analytics_{datetime.now().strftime("%Y%m%d")}.pdf'})
+
+@app.route('/api/reports/monthly')
+@api_login_required
+def monthly_report():
+    if not parking_lot:
+        return jsonify({'success': False, 'message': 'No parking lot configured'})
+    from core.reports import generate_monthly_report
+    month    = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    lot_name = 'Smart Parking'
+    if USE_DB:
+        from models.db import ParkingLotModel
+        lot = ParkingLotModel.query.get(1)
+        if lot: lot_name = lot.name
+    history   = parking_lot.history
+    pdf_bytes = generate_monthly_report(history, lot_name, month)
+    if not pdf_bytes:
+        return jsonify({'success': False, 'message': 'reportlab not installed. Run: pip install reportlab'})
+    from flask import Response
+    return Response(pdf_bytes, mimetype='application/pdf',
+                    headers={'Content-Disposition': f'attachment; filename=report_{month}.pdf'})
+
+
+# ─────────────────────────────────────────────
+# LOW #6 — OPERATOR SHIFT TRACKING
+# ─────────────────────────────────────────────
+
+@app.route('/api/shifts/start', methods=['POST'])
+@api_login_required
+def shift_start():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import OperatorShift
+    # End any active shift for this operator first
+    active = OperatorShift.query.filter_by(
+        operator_id=current_user.id, status='active'
+    ).first()
+    if active:
+        return jsonify({'success': False, 'message': 'Shift already active. End it first.'})
+    shift = OperatorShift(lot_id=1, operator_id=current_user.id)
+    db.session.add(shift)
+    db.session.commit()
+    return jsonify({'success': True, 'shift': shift.to_dict()})
+
+@app.route('/api/shifts/end', methods=['POST'])
+@api_login_required
+def shift_end():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import OperatorShift, HistoryModel
+    shift = OperatorShift.query.filter_by(
+        operator_id=current_user.id, status='active'
+    ).first()
+    if not shift:
+        return jsonify({'success': False, 'message': 'No active shift found'})
+    shift.end_time = datetime.now()
+    shift.status   = 'ended'
+    # Count exits and revenue during this shift
+    exits = HistoryModel.query.filter(
+        HistoryModel.lot_id == 1,
+        HistoryModel.exit_time >= shift.start_time,
+        HistoryModel.exit_time <= shift.end_time
+    ).all()
+    shift.exits_processed   = len(exits)
+    shift.revenue_collected = sum(e.fee for e in exits)
+    db.session.commit()
+    return jsonify({'success': True, 'shift': shift.to_dict()})
+
+@app.route('/api/shifts')
+@api_login_required
+def get_shifts():
+    if not USE_DB:
+        return jsonify({'success': True, 'shifts': [], 'active': None})
+    from models.db import OperatorShift
+    active = OperatorShift.query.filter_by(
+        operator_id=current_user.id, status='active'
+    ).first()
+    recent = OperatorShift.query.filter_by(lot_id=1).order_by(
+        OperatorShift.start_time.desc()
+    ).limit(20).all()
+    return jsonify({
+        'success': True,
+        'active':  active.to_dict() if active else None,
+        'shifts':  [s.to_dict() for s in recent]
+    })
+
+
+# ─────────────────────────────────────────────
+# LOW #7 — FASTTAG REGISTRY
+# ─────────────────────────────────────────────
+
+@app.route('/api/fasttag/register', methods=['POST'])
+@api_login_required
+def fasttag_register():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import FasTagRegistry
+    data         = request.json
+    fasttag_id   = sanitize_string(data.get('fasttag_id', ''), 32).upper().strip()
+    number_plate = sanitize_plate(data.get('number_plate', ''))
+    vehicle_type = sanitize_string(data.get('vehicle_type', 'car'), 16).lower()
+    owner_name   = sanitize_string(data.get('owner_name', ''), 80)
+    owner_phone  = sanitize_string(data.get('owner_phone', ''), 16)
+
+    if not fasttag_id or not number_plate:
+        return jsonify({'success': False, 'message': 'FASTag ID and plate are required'})
+
+    existing = FasTagRegistry.query.filter_by(lot_id=1, fasttag_id=fasttag_id).first()
+    if existing:
+        existing.number_plate = number_plate
+        existing.vehicle_type = vehicle_type
+        existing.owner_name   = owner_name
+        existing.owner_phone  = owner_phone
+        db.session.commit()
+        return jsonify({'success': True, 'updated': True, 'entry': existing.to_dict()})
+
+    entry = FasTagRegistry(
+        lot_id=1, fasttag_id=fasttag_id, number_plate=number_plate,
+        vehicle_type=vehicle_type, owner_name=owner_name, owner_phone=owner_phone
+    )
+    db.session.add(entry)
+    db.session.commit()
+    return jsonify({'success': True, 'entry': entry.to_dict()})
+
+@app.route('/api/fasttag/<fasttag_id>')
+@api_login_required
+def fasttag_lookup(fasttag_id):
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import FasTagRegistry
+    fasttag_id = sanitize_string(fasttag_id, 32).upper().strip()
+    entry = FasTagRegistry.query.filter_by(lot_id=1, fasttag_id=fasttag_id).first()
+    if not entry:
+        return jsonify({'success': False, 'message': 'FASTag not registered'})
+    return jsonify({'success': True, 'entry': entry.to_dict()})
+
+@app.route('/api/fasttag', methods=['GET'])
+@api_login_required
+def fasttag_list():
+    if not USE_DB:
+        return jsonify({'success': True, 'entries': []})
+    from models.db import FasTagRegistry
+    entries = FasTagRegistry.query.filter_by(lot_id=1).order_by(
+        FasTagRegistry.created_at.desc()
+    ).all()
+    return jsonify({'success': True, 'entries': [e.to_dict() for e in entries]})
+
+
+# ─────────────────────────────────────────────
+# LOW #9 — CUSTOM RATES PER VEHICLE TYPE
+# ─────────────────────────────────────────────
+
+@app.route('/api/custom-rates', methods=['GET'])
+@api_login_required
+def get_custom_rates():
+    if not USE_DB:
+        return jsonify({'success': True, 'rates': billing.get_rate_info()})
+    from models.db import CustomRate
+    custom = CustomRate.query.filter_by(lot_id=1).all()
+    rates  = billing.get_rate_info().copy()
+    for c in custom:
+        rates[c.vehicle_type] = c.rate_per_hour
+    return jsonify({'success': True, 'rates': rates})
+
+@app.route('/api/custom-rates', methods=['POST'])
+@api_login_required
+def set_custom_rate():
+    if not USE_DB:
+        return jsonify({'success': False, 'message': 'DB not enabled'})
+    from models.db import CustomRate
+    data         = request.json
+    vehicle_type = sanitize_string(data.get('vehicle_type', ''), 16).lower()
+    rate         = float(data.get('rate_per_hour', 0))
+
+    if vehicle_type not in ['car', 'bike', 'truck']:
+        return jsonify({'success': False, 'message': 'Invalid vehicle type'})
+    if rate <= 0 or rate > 9999:
+        return jsonify({'success': False, 'message': 'Rate must be between 1 and 9999'})
+
+    existing = CustomRate.query.filter_by(lot_id=1, vehicle_type=vehicle_type).first()
+    if existing:
+        existing.rate_per_hour = rate
+    else:
+        existing = CustomRate(lot_id=1, vehicle_type=vehicle_type, rate_per_hour=rate)
+        db.session.add(existing)
+    db.session.commit()
+
+    # Update billing object live
+    billing.RATE_PER_HOUR[vehicle_type] = rate
+    return jsonify({'success': True, 'rate': existing.to_dict()})
+
+
+# ─────────────────────────────────────────────
+# LOW #12 — PUBLIC AVAILABILITY API (no auth)
+# ─────────────────────────────────────────────
+
+@app.route('/api/public/lots')
+def public_lots():
+    """Public feed — no authentication required. For smart city, display boards."""
+    if not parking_lot:
+        return jsonify({'lots': []})
+    stats    = parking_lot.get_stats()
+    lot_name = 'Smart Parking'
+    if USE_DB:
+        from models.db import ParkingLotModel
+        lot = ParkingLotModel.query.get(1)
+        if lot: lot_name = lot.name
+    return jsonify({
+        'lots': [{
+            'id':            1,
+            'name':          lot_name,
+            'capacity':      stats['capacity'],
+            'occupied':      stats['occupied'],
+            'available':     stats['empty'],
+            'occupancy_pct': stats['occupancy_pct'],
+            'queue_length':  stats['queue_length'],
+            'updated_at':    datetime.now().isoformat(),
+        }]
+    })
+
+
+# ─────────────────────────────────────────────
+# LOW #13 — THEME PREFERENCE (dark mode persist)
+# ─────────────────────────────────────────────
+
+@app.route('/api/preferences', methods=['GET'])
+@api_login_required
+def get_preferences():
+    if not USE_DB:
+        return jsonify({'success': True, 'theme': 'dark'})
+    from models.db import UserPreference
+    pref = UserPreference.query.filter_by(user_id=current_user.id).first()
+    return jsonify({'success': True, 'theme': pref.theme if pref else 'dark'})
+
+@app.route('/api/preferences', methods=['POST'])
+@api_login_required
+def set_preferences():
+    if not USE_DB:
+        return jsonify({'success': True})
+    from models.db import UserPreference
+    theme = request.json.get('theme', 'dark')
+    if theme not in ('dark', 'light'):
+        return jsonify({'success': False, 'message': 'Invalid theme'})
+    pref = UserPreference.query.filter_by(user_id=current_user.id).first()
+    if not pref:
+        pref = UserPreference(user_id=current_user.id, theme=theme)
+        db.session.add(pref)
+    else:
+        pref.theme = theme
+    db.session.commit()
+    return jsonify({'success': True, 'theme': theme})
+
 # ─────────────────────────────────────────────
 # BOOTSTRAP ON MODULE LOAD (for gunicorn)
 # ─────────────────────────────────────────────
