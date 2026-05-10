@@ -2758,3 +2758,42 @@
   border-color: var(--gold);
 }
 
+
+/* ── LOW TASK BUTTONS ────────────────────── */
+.btn-history, .btn-shifts, .btn-fastag, .btn-rates {
+  padding: 7px 14px;
+  background: transparent;
+  border-radius: var(--r-sm);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: var(--t);
+}
+.btn-history { border: 1px solid var(--cyan-dim); color: var(--cyan); }
+.btn-history:hover, .btn-history.active { background: var(--cyan-soft); }
+.btn-shifts  { border: 1px solid var(--green-dim); color: var(--green); }
+.btn-shifts:hover, .btn-shifts.active  { background: var(--green-soft); }
+.btn-fastag  { border: 1px solid var(--purple); color: var(--purple); }
+.btn-fastag:hover, .btn-fastag.active  { background: var(--purple-soft); }
+.btn-rates   { border: 1px solid var(--gold-dim); color: var(--gold); }
+.btn-rates:hover, .btn-rates.active   { background: var(--gold-soft); }
+
+.history-panel, .shifts-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  margin: 0 24px 18px;
+  overflow: hidden;
+  animation: slideDown 0.3s ease;
+  position: relative;
+}
+.history-panel::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+}
+.shifts-panel::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--green), transparent);
+}
