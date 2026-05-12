@@ -8,3 +8,7 @@ python-dotenv>=1.0.0
 bcrypt>=4.0.1
 gunicorn>=21.2.0
 reportlab>=4.0.0
+twilio>=8.0.0
+razorpay>=1.4.0
+flask-mail>=0.9.1
+requests>=2.31.0
