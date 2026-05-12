@@ -417,3 +417,117 @@ class UserPreference(db.Model):
 
     def to_dict(self):
         return {'theme': self.theme}
+
+
+# ─────────────────────────────────────────────
+# PAYMENT  (MEDIUM #1)
+# ─────────────────────────────────────────────
+
+class Payment(db.Model):
+    __tablename__ = 'payments'
+
+    id                  = db.Column(db.Integer, primary_key=True)
+    lot_id              = db.Column(db.Integer, db.ForeignKey('parking_lots.id'), nullable=False)
+    ticket_id           = db.Column(db.String(8),   nullable=False)
+    number_plate        = db.Column(db.String(16),  nullable=False)
+    razorpay_order_id   = db.Column(db.String(50),  nullable=True)
+    razorpay_payment_id = db.Column(db.String(50),  nullable=True)
+    amount              = db.Column(db.Float,        nullable=False)
+    gst_amount          = db.Column(db.Float,        nullable=True, default=0.0)
+    total_amount        = db.Column(db.Float,        nullable=False)
+    status              = db.Column(db.String(16),   default='pending')  # pending|paid|failed
+    created_at          = db.Column(db.DateTime,     default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id':                  self.id,
+            'ticket_id':           self.ticket_id,
+            'number_plate':        self.number_plate,
+            'razorpay_order_id':   self.razorpay_order_id,
+            'razorpay_payment_id': self.razorpay_payment_id,
+            'amount':              self.amount,
+            'gst_amount':          self.gst_amount,
+            'total_amount':        self.total_amount,
+            'status':              self.status,
+            'created_at':          self.created_at.isoformat(),
+        }
+
+
+# ─────────────────────────────────────────────
+# WHATSAPP LOG  (MEDIUM #3)
+# ─────────────────────────────────────────────
+
+class WhatsAppLog(db.Model):
+    __tablename__ = 'whatsapp_logs'
+
+    id           = db.Column(db.Integer, primary_key=True)
+    lot_id       = db.Column(db.Integer, db.ForeignKey('parking_lots.id'), nullable=False)
+    phone        = db.Column(db.String(20),  nullable=False)
+    message_type = db.Column(db.String(32),  nullable=False)  # entry|exit|waitlist|sms
+    twilio_sid   = db.Column(db.String(50),  nullable=True)
+    status       = db.Column(db.String(16),  default='sent')   # sent|failed
+    sent_at      = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id':           self.id,
+            'phone':        self.phone,
+            'message_type': self.message_type,
+            'twilio_sid':   self.twilio_sid,
+            'status':       self.status,
+            'sent_at':      self.sent_at.isoformat(),
+        }
+
+
+# ─────────────────────────────────────────────
+# SUBSCRIPTION  (MEDIUM #7)
+# ─────────────────────────────────────────────
+
+class Subscription(db.Model):
+    __tablename__ = 'subscriptions'
+
+    id                  = db.Column(db.Integer, primary_key=True)
+    lot_id              = db.Column(db.Integer, db.ForeignKey('parking_lots.id'), nullable=False, unique=True)
+    plan                = db.Column(db.String(20),  nullable=False)   # free|starter|pro|enterprise
+    razorpay_sub_id     = db.Column(db.String(50),  nullable=True)
+    amount              = db.Column(db.Float,        nullable=True)
+    start_date          = db.Column(db.DateTime,     nullable=True)
+    next_billing        = db.Column(db.DateTime,     nullable=True)
+    status              = db.Column(db.String(16),   default='active')  # active|cancelled|expired
+    created_at          = db.Column(db.DateTime,     default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id':             self.id,
+            'lot_id':         self.lot_id,
+            'plan':           self.plan,
+            'amount':         self.amount,
+            'status':         self.status,
+            'next_billing':   self.next_billing.isoformat() if self.next_billing else None,
+        }
+
+
+# ─────────────────────────────────────────────
+# TENANT (WHITE-LABEL)  (MEDIUM #12)
+# ─────────────────────────────────────────────
+
+class Tenant(db.Model):
+    __tablename__ = 'tenants'
+
+    id           = db.Column(db.Integer, primary_key=True)
+    lot_id       = db.Column(db.Integer, db.ForeignKey('parking_lots.id'), nullable=False, unique=True)
+    brand_name   = db.Column(db.String(80),  nullable=False, default='Smart Parking')
+    logo_url     = db.Column(db.String(200), nullable=True)
+    primary_color= db.Column(db.String(10),  nullable=True, default='#f0c040')
+    accent_color = db.Column(db.String(10),  nullable=True, default='#00c8f0')
+    domain       = db.Column(db.String(100), nullable=True)
+    created_at   = db.Column(db.DateTime,    default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'brand_name':    self.brand_name,
+            'logo_url':      self.logo_url,
+            'primary_color': self.primary_color,
+            'accent_color':  self.accent_color,
+            'domain':        self.domain,
+        }
