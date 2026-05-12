@@ -2642,3 +2642,337 @@ async function loadAnalyticsWithCharts() {
     }
   } catch (e) {}
 }
+
+/* ══════════════════════════════════════════════════════════
+   MEDIUM COMPLEXITY TASKS — ALL 14
+   #1 Razorpay · #2 GST Invoice · #3-6 WhatsApp/SMS
+   #7 Subscriptions · #8 Email Reports · #9 City Map
+   #10 Customer App · #11 WebSockets · #12 White-label
+   #13 Google SSO · #14 AI Surge Suggestions
+══════════════════════════════════════════════════════════ */
+
+// ── MEDIUM #1 — RAZORPAY PAYMENTS ───────────────────────
+
+let currentPaymentData = null;
+let paymentsVisible    = false;
+
+async function togglePayments() {
+  paymentsVisible = !paymentsVisible;
+  const panel = document.getElementById('paymentsPanel');
+  const btn   = document.querySelector('.btn-pay');
+  if (paymentsVisible) { panel.classList.remove('hidden'); btn.classList.add('active'); await loadPayments(); }
+  else                 { panel.classList.add('hidden');    btn.classList.remove('active'); }
+}
+
+async function loadPayments() {
+  const list = document.getElementById('paymentsList');
+  try {
+    const res  = await fetch('/api/payments');
+    const data = await res.json();
+    if (!data.payments || data.payments.length === 0) {
+      list.innerHTML = '<div class="empty-state">No payments yet.</div>'; return;
+    }
+    list.innerHTML = data.payments.map(p => `
+      <div class="rule-card">
+        <div style="flex:1;">
+          <div class="rule-name">${p.number_plate} · ${p.ticket_id}</div>
+          <div class="rule-hours">${p.created_at.slice(0,16)} · ${p.status.toUpperCase()}</div>
+        </div>
+        <div class="rule-multiplier" style="color:var(--${p.status==='paid'?'green':'red'});">₹${p.total_amount}</div>
+        <button class="btn-delete-rule" onclick="downloadInvoice('${p.ticket_id}')" title="Download Invoice">🧾</button>
+      </div>`).join('');
+  } catch (e) {}
+}
+
+async function openPaymentModal(ticketId, plate, amount) {
+  currentPaymentData = { ticketId, plate, amount };
+  const gst   = Math.round(amount * 0.18 * 100) / 100;
+  const total = Math.round((amount + gst) * 100) / 100;
+  document.getElementById('paymentDetails').innerHTML = `
+    <div class="receipt-row"><span class="r-label">Vehicle</span><span class="r-value">${plate}</span></div>
+    <div class="receipt-row"><span class="r-label">Parking Fee</span><span class="r-value">₹${amount}</span></div>
+    <div class="receipt-row"><span class="r-label">GST (18%)</span><span class="r-value">₹${gst}</span></div>
+    <div class="receipt-row total"><span class="r-label">TOTAL</span><span class="r-value">₹${total}</span></div>`;
+  document.getElementById('paymentError').textContent = '';
+  document.getElementById('paymentOverlay').classList.remove('hidden');
+}
+
+async function initiatePayment() {
+  if (!currentPaymentData) return;
+  const errEl = document.getElementById('paymentError');
+  errEl.textContent = '';
+  try {
+    const res  = await fetch('/api/create-payment-order', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        ticket_id: currentPaymentData.ticketId,
+        number_plate: currentPaymentData.plate,
+        amount: currentPaymentData.amount
+      })
+    });
+    const data = await res.json();
+    if (!data.success) { errEl.textContent = data.message; return; }
+
+    if (data.mock) {
+      // Mock payment — no real Razorpay key yet
+      showToast('Payment recorded (test mode — add RAZORPAY_KEY_ID to .env for live)', 'info');
+      document.getElementById('paymentOverlay').classList.add('hidden');
+      await loadPayments();
+      return;
+    }
+
+    // Real Razorpay checkout
+    const options = {
+      key:         data.key_id,
+      amount:      data.amount * 100,
+      currency:    'INR',
+      name:        'Smart Parking System',
+      description: `Parking — ${currentPaymentData.plate}`,
+      order_id:    data.order_id,
+      handler: async (response) => {
+        const vRes = await fetch('/api/verify-payment', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            razorpay_order_id:   response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature:  response.razorpay_signature,
+            ticket_id:           currentPaymentData.ticketId,
+          })
+        });
+        const vData = await vRes.json();
+        if (vData.success) {
+          showToast('Payment successful!', 'success');
+          document.getElementById('paymentOverlay').classList.add('hidden');
+          await loadPayments();
+        }
+      },
+      theme: { color: '#f0c040' }
+    };
+    const rzp = new window.Razorpay(options);
+    rzp.open();
+  } catch (e) { errEl.textContent = 'Payment error. Try again.'; }
+}
+
+function skipPayment() {
+  document.getElementById('paymentOverlay').classList.add('hidden');
+  showToast('Payment skipped — cash collected', 'info');
+}
+
+// ── MEDIUM #2 — GST INVOICE DOWNLOAD ────────────────────
+
+async function downloadInvoice(ticketId) {
+  showToast('Generating invoice...', 'info');
+  try {
+    const res = await fetch(`/api/invoice/${ticketId}`);
+    if (res.ok) {
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `invoice_${ticketId}.pdf`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast('Invoice downloaded', 'success');
+    } else {
+      const d = await res.json();
+      showToast(d.message || 'Invoice failed', 'error');
+    }
+  } catch (e) { showToast('Invoice generation failed', 'error'); }
+}
+
+// ── MEDIUM #7 — SUBSCRIPTIONS ────────────────────────────
+
+async function subscribePlan(plan) {
+  try {
+    const res  = await fetch('/api/subscriptions', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ plan })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Subscribed to ${plan.toUpperCase()} plan${data.mock ? ' (test mode)' : ''}`, 'success');
+      await loadSubscription();
+    } else {
+      showToast(data.message, 'error');
+    }
+  } catch (e) { showToast('Subscription error', 'error'); }
+}
+
+async function loadSubscription() {
+  try {
+    const res  = await fetch('/api/subscriptions');
+    const data = await res.json();
+    const info = document.getElementById('currentSubInfo');
+    if (!info) return;
+    if (data.subscription) {
+      const s = data.subscription;
+      info.innerHTML = `
+        <div class="rule-card" style="border-left-color:var(--green);">
+          <div style="flex:1;">
+            <div class="rule-name">${s.plan.toUpperCase()} PLAN — ${s.status.toUpperCase()}</div>
+            <div class="rule-hours">Rs ${s.amount}/month · Next billing: ${s.next_billing ? s.next_billing.slice(0,10) : 'N/A'}</div>
+          </div>
+        </div>`;
+    } else {
+      info.innerHTML = '<div class="empty-state">No active subscription. Choose a plan below.</div>';
+    }
+  } catch (e) {}
+}
+
+// ── MEDIUM #8 — EMAIL REPORTS ────────────────────────────
+
+function openEmailReport() {
+  const now = new Date();
+  document.getElementById('reportMonth').value = now.toISOString().slice(0,7);
+  document.getElementById('reportEmail').value = '';
+  document.getElementById('reportEmailError').textContent = '';
+  document.getElementById('emailReportOverlay').classList.remove('hidden');
+}
+
+function closeEmailReport() {
+  document.getElementById('emailReportOverlay').classList.add('hidden');
+}
+
+async function sendEmailReport() {
+  const errEl = document.getElementById('reportEmailError');
+  errEl.textContent = '';
+  const body = {
+    email: document.getElementById('reportEmail').value.trim(),
+    month: document.getElementById('reportMonth').value,
+  };
+  if (!body.email) { errEl.textContent = 'Email is required'; return; }
+  try {
+    const res  = await fetch('/api/reports/email', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.success) { closeEmailReport(); showToast('Report sent successfully', 'success'); }
+    else errEl.textContent = data.message;
+  } catch (e) { errEl.textContent = 'Error sending email'; }
+}
+
+// ── MEDIUM #12 — WHITE-LABEL TENANT ──────────────────────
+
+let tenantVisible = false;
+
+async function toggleTenant() {
+  tenantVisible = !tenantVisible;
+  const panel = document.getElementById('tenantPanel');
+  if (tenantVisible) { panel.classList.remove('hidden'); await loadTenant(); }
+  else               { panel.classList.add('hidden'); }
+}
+
+async function loadTenant() {
+  try {
+    const res  = await fetch('/api/tenant');
+    const data = await res.json();
+    if (data.tenant) {
+      document.getElementById('tenantBrandName').value    = data.tenant.brand_name || '';
+      document.getElementById('tenantLogoUrl').value      = data.tenant.logo_url || '';
+      document.getElementById('tenantPrimaryColor').value = data.tenant.primary_color || '#f0c040';
+      document.getElementById('tenantAccentColor').value  = data.tenant.accent_color || '#00c8f0';
+      document.getElementById('tenantDomain').value       = data.tenant.domain || '';
+    }
+  } catch (e) {}
+}
+
+async function saveTenant() {
+  const errEl = document.getElementById('tenantError');
+  errEl.textContent = '';
+  const body = {
+    brand_name:    document.getElementById('tenantBrandName').value.trim(),
+    logo_url:      document.getElementById('tenantLogoUrl').value.trim(),
+    primary_color: document.getElementById('tenantPrimaryColor').value,
+    accent_color:  document.getElementById('tenantAccentColor').value,
+    domain:        document.getElementById('tenantDomain').value.trim(),
+  };
+  try {
+    const res  = await fetch('/api/tenant', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Branding saved', 'success');
+      // Apply colors live
+      document.documentElement.style.setProperty('--gold', body.primary_color);
+      document.documentElement.style.setProperty('--cyan', body.accent_color);
+      if (body.brand_name) {
+        document.querySelector('.brand-name').textContent = body.brand_name.toUpperCase();
+      }
+    } else errEl.textContent = data.message;
+  } catch (e) { errEl.textContent = 'Error saving branding'; }
+}
+
+// ── MEDIUM #14 — AI SURGE SUGGESTIONS ───────────────────
+
+async function loadSurgeSuggestions() {
+  const content = document.getElementById('aiSuggestContent');
+  content.innerHTML = '<div class="empty-state">Analysing peak patterns...</div>';
+  try {
+    const res  = await fetch('/api/ai/suggest-surge');
+    const data = await res.json();
+    if (!data.suggestions || data.suggestions.length === 0) {
+      content.innerHTML = '<div class="empty-state">No peak patterns detected yet. Need more exit history.</div>'; return;
+    }
+    content.innerHTML = data.suggestions.map(s => `
+      <div class="rule-card">
+        <div style="flex:1;">
+          <div class="rule-name">${s.name}</div>
+          <div class="rule-hours">${String(s.hour_start).padStart(2,'0')}:00 – ${String(s.hour_end).padStart(2,'0')}:00 · ${s.reason}</div>
+        </div>
+        <div class="rule-multiplier">${s.multiplier}x</div>
+        <button class="btn-add-rule" style="font-size:0.56rem;padding:5px 10px;"
+                onclick="applyAISuggestion(${JSON.stringify(s).replace(/"/g,'&quot;')})">APPLY</button>
+      </div>`).join('');
+  } catch (e) { content.innerHTML = '<div class="empty-state">Error loading suggestions.</div>'; }
+}
+
+async function applyAISuggestion(suggestion) {
+  try {
+    const res  = await fetch('/api/ai/apply-suggestion', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(suggestion)
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Rule applied: ${suggestion.name}`, 'success');
+      await loadPricingRules();
+    }
+  } catch (e) { showToast('Error applying suggestion', 'error'); }
+}
+
+// ── SHOW AI SUGGEST TAB IN AI PANEL ─────────────────────
+// Patch toggleAI to also show suggestions button
+const _origToggleAI = toggleAI;
+toggleAI = async function() {
+  await _origToggleAI();
+  // Add suggest button to AI panel if not present
+  const header = document.querySelector('#aiPanel .pricing-header');
+  if (header && !document.getElementById('aiSuggestBtn')) {
+    const btn = document.createElement('button');
+    btn.id = 'aiSuggestBtn';
+    btn.className = 'btn-add-rule';
+    btn.style.marginLeft = '8px';
+    btn.textContent = '⚡ SURGE SUGGESTIONS';
+    btn.onclick = async () => {
+      const panel = document.getElementById('aiSuggestPanel');
+      panel.classList.toggle('hidden');
+      if (!panel.classList.contains('hidden')) await loadSurgeSuggestions();
+    };
+    header.appendChild(btn);
+  }
+};
+
+// ── SHOW TENANT BTN FOR ADMIN ────────────────────────────
+const _origCheckUserRole = checkUserRole;
+checkUserRole = async function() {
+  await _origCheckUserRole();
+  try {
+    const res  = await fetch('/api/me');
+    const data = await res.json();
+    if (data.role === 'admin') {
+      const btn = document.getElementById('tenantBtn');
+      if (btn) btn.style.display = 'block';
+    }
+  } catch (e) {}
+};
