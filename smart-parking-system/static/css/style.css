@@ -2797,3 +2797,108 @@
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, transparent, var(--green), transparent);
 }
+
+/* ── STICKY HEADER FIX ───────────────────── */
+header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1000 !important;
+}
+
+#app {
+  padding-top: 0 !important;
+}
+
+/* ── REMOVE BLANK SPACE AT TOP ───────────── */
+body {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.app {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+.occ-bar-wrap {
+  margin-top: 0 !important;
+}
+
+/* ── BLANK SPACE + HEADER OVERFLOW FIX ──── */
+header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1000 !important;
+  flex-wrap: wrap !important;
+}
+
+.header-right {
+  flex-wrap: wrap !important;
+  gap: 4px !important;
+}
+
+.header-right button {
+  font-size: 0.52rem !important;
+  padding: 5px 10px !important;
+}
+
+.app.hidden {
+  display: none !important;
+}
+
+.app {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+body, html {
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow-x: hidden !important;
+}
+
+/* ── FIX BLANK SPACE ─────────────────────── */
+.app {
+  min-height: 0 !important;
+}
+
+html, body {
+  height: auto !important;
+  min-height: 100vh;
+}
+
+/* ── APP VISIBILITY FIX ──────────────────── */
+.app {
+  min-height: 0 !important;
+}
+
+/* ── MEDIUM TASK BUTTONS ─────────────────── */
+.btn-pay {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--green-dim);
+  border-radius: var(--r-sm);
+  color: var(--green);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: var(--t);
+}
+.btn-pay:hover, .btn-pay.active { background: var(--green-soft); }
+
+.btn-tenant {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--purple);
+  border-radius: var(--r-sm);
+  color: var(--purple);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: var(--t);
+}
+.btn-tenant:hover { background: var(--purple-soft); }
