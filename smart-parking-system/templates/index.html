@@ -281,6 +281,8 @@
       </div>
       <div id="surgeBadge" class="surge-badge hidden">⚡ SURGE ACTIVE</div>
       <button class="btn-pricing" onclick="togglePricing()">⚡ PRICING</button>
+      <button class="btn-pay" onclick="togglePayments()">💳 PAYMENTS</button>
+      <button class="btn-tenant" onclick="toggleTenant()" id="tenantBtn" style="display:none;">🎨 BRAND</button>
       <button class="btn-rates" onclick="toggleCustomRates()">💰 RATES</button>
       <button class="btn-fastag" onclick="toggleFastag()">📡 FASTAG</button>
       <button class="btn-shifts" onclick="toggleShifts()">🕐 SHIFT</button>
@@ -558,7 +560,138 @@
   </div>
 </div>
 
-  <!-- ══════════ VEHICLE HISTORY PANEL ══════════ -->
+  <!-- ══════════ PAYMENTS PANEL ══════════ -->
+<div id="paymentsPanel" class="history-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">💳 PAYMENT HISTORY</div>
+    <button class="btn-add-rule" onclick="downloadMonthlyReport()">📥 MONTHLY REPORT</button>
+  </div>
+  <div id="paymentsList" class="pricing-rules-list">
+    <div class="empty-state">No payments recorded yet.</div>
+  </div>
+</div>
+
+<!-- ══════════ AI SURGE SUGGESTIONS PANEL ══════════ -->
+<div id="aiSuggestPanel" class="ai-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">🧠 AI SURGE SUGGESTIONS</div>
+    <button class="btn-add-rule" onclick="loadSurgeSuggestions()">↻ REFRESH</button>
+  </div>
+  <div id="aiSuggestContent" class="pricing-rules-list">
+    <div class="empty-state">Click REFRESH to get AI-powered surge suggestions.</div>
+  </div>
+</div>
+
+<!-- ══════════ WHITE-LABEL BRAND PANEL ══════════ -->
+<div id="tenantPanel" class="ai-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">🎨 WHITE-LABEL BRANDING</div>
+    <button class="btn-add-rule" onclick="saveTenant()">💾 SAVE BRANDING</button>
+  </div>
+  <div style="padding:16px 20px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div class="form-group">
+        <label>BRAND NAME</label>
+        <input type="text" id="tenantBrandName" placeholder="My Parking Co." />
+      </div>
+      <div class="form-group">
+        <label>LOGO URL (optional)</label>
+        <input type="text" id="tenantLogoUrl" placeholder="https://example.com/logo.png" />
+      </div>
+      <div class="form-group">
+        <label>PRIMARY COLOR</label>
+        <input type="color" id="tenantPrimaryColor" value="#f0c040"
+               style="width:100%;height:40px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-input);cursor:pointer;" />
+      </div>
+      <div class="form-group">
+        <label>ACCENT COLOR</label>
+        <input type="color" id="tenantAccentColor" value="#00c8f0"
+               style="width:100%;height:40px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-input);cursor:pointer;" />
+      </div>
+      <div class="form-group">
+        <label>CUSTOM DOMAIN (optional)</label>
+        <input type="text" id="tenantDomain" placeholder="parking.yourclient.com" />
+      </div>
+    </div>
+    <div class="modal-error" id="tenantError" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<!-- ══════════ SUBSCRIPTION PANEL ══════════ -->
+<div id="subscriptionPanel" class="ai-panel hidden">
+  <div class="pricing-header">
+    <div class="pricing-title">📋 SUBSCRIPTION</div>
+  </div>
+  <div style="padding:16px 20px;">
+    <div id="currentSubInfo" style="margin-bottom:16px;"></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+      <div class="admin-stat-card" style="border:1px solid var(--border);border-radius:var(--r-md);cursor:pointer;" onclick="subscribePlan('starter')">
+        <div class="admin-stat-val" style="font-size:1.1rem;color:var(--cyan);">STARTER</div>
+        <div class="admin-stat-lbl">Rs 2,999/month</div>
+        <div style="font-family:var(--font-data);font-size:0.6rem;color:var(--text-lo);margin-top:6px;">1 lot · QR · payments · WhatsApp</div>
+      </div>
+      <div class="admin-stat-card" style="border:1px solid var(--gold);border-radius:var(--r-md);cursor:pointer;" onclick="subscribePlan('pro')">
+        <div class="admin-stat-val" style="font-size:1.1rem;color:var(--gold);">PRO</div>
+        <div class="admin-stat-lbl">Rs 7,999/month</div>
+        <div style="font-family:var(--font-data);font-size:0.6rem;color:var(--text-lo);margin-top:6px;">5 lots · AI · EV · dynamic pricing</div>
+      </div>
+      <div class="admin-stat-card" style="border:1px solid var(--purple);border-radius:var(--r-md);cursor:pointer;" onclick="subscribePlan('enterprise')">
+        <div class="admin-stat-val" style="font-size:1.1rem;color:var(--purple);">ENTERPRISE</div>
+        <div class="admin-stat-lbl">Custom pricing</div>
+        <div style="font-family:var(--font-data);font-size:0.6rem;color:var(--text-lo);margin-top:6px;">Hardware · ANPR · white-label · SLA</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ EMAIL REPORT MODAL ══════════ -->
+<div id="emailReportOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <div class="modal-icon">📧</div>
+      <h2>EMAIL MONTHLY REPORT</h2>
+      <p>Send the revenue report to an email address</p>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>EMAIL ADDRESS</label>
+        <input type="email" id="reportEmail" placeholder="owner@example.com" />
+      </div>
+      <div class="form-group">
+        <label>MONTH</label>
+        <input type="month" id="reportMonth" />
+      </div>
+      <div class="modal-error" id="reportEmailError"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="sendEmailReport()">SEND REPORT</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="closeEmailReport()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ RAZORPAY PAYMENT MODAL ══════════ -->
+<div id="paymentOverlay" class="overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-icon">💳</div>
+      <h2>COLLECT PAYMENT</h2>
+      <p id="paymentModalSub">Processing payment at exit</p>
+    </div>
+    <div class="modal-body">
+      <div id="paymentDetails" style="margin-bottom:14px;"></div>
+      <div class="modal-error" id="paymentError"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="payNowBtn" onclick="initiatePayment()">PAY NOW</button>
+      <div style="height:8px"></div>
+      <button class="btn-secondary" onclick="skipPayment()">SKIP (Cash)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ VEHICLE HISTORY PANEL ══════════ -->
 <div id="vehicleHistoryPanel" class="history-panel hidden">
   <div class="pricing-header">
     <div class="pricing-title">🔍 VEHICLE HISTORY SEARCH</div>
